@@ -1,11 +1,11 @@
 {
   "full-correct-1": {
-    "head": "f69db557a1c1719266ec6e2d1f9938f5686e7fec9377f1188dc000d58af8ae52",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "0b1bbc0bd5e36b88fbdb69d66bee2f0262e25cc6fd55122a1c9e4b60122e619d",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-correct-2": {
-    "head": "c842a45444253cc67df37954af09cb684428e3c38307ae250de2da19715e5c17",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "0b17d9219b10eb58637c1ea28b7d162ded7922d7f9144c5e48f533794280c245",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-correct-3": {
     "head": "f604af0f5e0fec1787a138c63edc3b9d26ee5543a0e5c261730b4ba561272c85",
@@ -16,24 +16,24 @@
     "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
   },
   "full-correct-5": {
-    "head": "a15b0674542084f9c07e71f246252484a4ca2598738728d16a38fd52b81e293e",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "787a98380e16b589f54517560b7b092698804708a765d3ca6c7354b3f9cd37cc",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-correct-6": {
     "head": "6ce8957aafdfa082f470d999389be6dce0729cc91884e3bc94c012b7e3412dcf",
     "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
   },
   "full-correct-7": {
-    "head": "c1eae6fb9353976197ab46f63473c16da94288567b87968ec5110b38a2926910",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "3862bf0fdc964b2825684d7a17d951fcb6badfbb7ffff1972a65044e7d719b7f",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-correct-8": {
-    "head": "cb968bed51ae7f4e24627fc43f4324f42f524036315d38d5af50ee7f4e12d373",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "9bc777ec6bb961357642827a58a15b27565bd49fb35747a150a077c70e995aca",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-correct-100": {
-    "head": "9d5f518b1432fba85085cf832722734882922efbdbcaa1215b76b4aa9bb69e0e",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "ae1f499516a8a3a3aa5ce60ce90430023540f2d26ed81557905d947d82d7fc25",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "full-idle-1": {
     "head": "d735923dfc791d6b3ec7644a2a815975bf47f8dbde1ad4e7a0915a222ee2616a",
@@ -84,12 +84,12 @@
     "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
   },
   "transition-attacks-correct": {
-    "head": "66504b7fbca5d878847ebf0b19aeeef27393e958f5cf6231f659fa64550d9e59",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "b953ed62322fb02012a29119a65deff06c67f5fede015220c1989f2c6240a267",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "transition-attacks-cycle-start": {
-    "head": "582617eceb8e7b1b6d957232fb7d0dfda3a3e3a539b880ddaee7acbf9123c17a",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "2516c1a375baa0d7227ca2b40a6becb9d72a8f4f2aceda6dae7ec895cc3ade61",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "rifts-correct": {
     "head": "711c459815b7c44cfa52cc2fe5b14e88e13f5d11189b7c9f860f090ff2a8bbc7",
@@ -100,8 +100,8 @@
     "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
   },
   "replay-v2-correct": {
-    "head": "c6213909f120811fee65ec197afa9ab3a1e8254f296ddabc3bcb1777d4f10052",
-    "why": "Replace Bastion stand-ins 22461 with ranging potions 2444 in inventory slots 10 and 14. Every fight-log row is unchanged."
+    "head": "6d14d6405c2317774259f269a8bda3f75a13b5df94c43e40772a08f18dcdc447",
+    "why": "A transition attack under the right prayer rolls 5 to 12, not 5 to 10, so its requested damage changes on the hit tick and the HP after it. Nothing else in the run changes."
   },
   "holes-v1-turn": {
     "head": "b4610ea7d666e689344612c628a49d586fdaf0d99a70e03235945a61811880b4",

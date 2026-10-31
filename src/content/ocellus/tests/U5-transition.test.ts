@@ -20,7 +20,7 @@ describe("U5 transition attacks", () => {
   });
 
   test.each([
-    { when: "Protect from Magic clicked after tick 36 is up when the vortex lands", prayer: "Protect from Magic", clicks: [36], atTell: null, hit: [37, { requested: 9, applied: 9, beforeHp: 99, afterHp: 90, prayer: "magic" }] },
+    { when: "Protect from Magic clicked after tick 36 is up when the vortex lands", prayer: "Protect from Magic", clicks: [36], atTell: null, hit: [37, { requested: 11, applied: 11, beforeHp: 99, afterHp: 88, prayer: "magic" }] },
     { when: "Protect from Magic clicked after the landing tick is late", prayer: "Protect from Magic", clicks: [37], atTell: null, hit: [37, { requested: 49, applied: 49, beforeHp: 99, afterHp: 50, prayer: null }] },
     { when: "Protect from Melee does not protect from the vortex", prayer: "Protect from Melee", clicks: [36], atTell: null, hit: [37, { requested: 49, applied: 49, beforeHp: 99, afterHp: 50, prayer: "melee" }] },
     { when: "Protect from Magic up at the tell and off before the landing does not protect", prayer: "Protect from Magic", clicks: [31, 35], atTell: "magic", hit: [37, { requested: 49, applied: 49, beforeHp: 99, afterHp: 50, prayer: null }] },
@@ -35,12 +35,12 @@ describe("U5 transition attacks", () => {
     drill.dispose();
   });
 
-  test("a protected transition hit can take 10, the most a fight log records under the right prayer: seed 5's vortex under Protect from Magic", () => {
+  test("a protected transition hit can take 12, the most six raid logs record under the right prayer: seed 5's vortex under Protect from Magic", () => {
     const drill = startDrill({ seed: 5, selection: REPLAY_V2 });
     drill.tickTo(36);
     drill.pray("Protect from Magic");
     drill.tickTo(38);
-    expect(drill.events("special-hit").map((e) => [e.at, e.receipt])).toEqual([[37, { requested: 10, applied: 10, beforeHp: 99, afterHp: 89, prayer: "magic" }]]);
+    expect(drill.events("special-hit").map((e) => [e.at, e.receipt])).toEqual([[37, { requested: 12, applied: 12, beforeHp: 99, afterHp: 87, prayer: "magic" }]]);
     drill.dispose();
   });
 

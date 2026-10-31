@@ -249,7 +249,7 @@ describe("U6 boss overheads, heals and rifts", () => {
     drill.tickTo(63);
     drill.pray("Protect from Range");
     drill.tickTo(68);
-    expect(drill.events("special-hit").map((e) => [e.at, e.style, e.receipt.prayer, e.receipt.applied])).toEqual([[37, "magic", null, 49], [65, "ranged", "ranged", 8]]);
+    expect(drill.events("special-hit").map((e) => [e.at, e.style, e.receipt.prayer, e.receipt.applied])).toEqual([[37, "magic", null, 49], [65, "ranged", "ranged", 9]]);
     expect(drill.events("boss-healed").map((e) => [e.at, e.cause, e.receipt])).toEqual([
       [39, { kind: "soul-split", ordinal: 0 }, { requested: 49, applied: 49, beforeHp: 1312, afterHp: 1361 }],
       [62, { kind: "unclaimed-orb" }, { requested: 25, applied: 25, beforeHp: 1361, afterHp: 1386 }],

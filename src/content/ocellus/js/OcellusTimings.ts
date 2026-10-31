@@ -456,10 +456,10 @@ const SPECIAL: SpecialRecipe = {
     vortex: selected("magic", "footage-repeated", "team-5", "players on Protect from Magic take 7 twice", STRATEGIES_P4, vod("V2", "k77, k165")),
   },
   protectedDamage: selected(
-    { min: 5, max: 10 },
+    { min: 5, max: 12 },
     "log-repeated",
     "team-4-and-5",
-    "7, 6, 7, 6, 9 on Kirby and 7, 5, 7, 9 on the streamer under the matching prayer, and a 10 in a fight log, on a player whose hitsplat shows Protect from Magic at S+57 of cycle 4; that log's own line for the hit says no prayer, but 10 is far below the 43 to 50 an unprotected player takes, so the hitsplat's prayer is taken (inferred); the solo carry-over is inferred",
+    "5 to 12 in 150 hits under the matching prayer in six raid logs (12 twice, 11 six times); 7, 6, 7, 6, 9 on Kirby and 7, 5, 7, 9 on the streamer under the matching prayer, and a 10 in a fight log, on a player whose hitsplat shows Protect from Magic at S+57 of cycle 4; that log's own line for the hit says no prayer, but 10 is far below the 43 to 50 an unprotected player takes, so the hitsplat's prayer is taken (inferred); the solo carry-over is inferred",
     STRATEGIES_P4, vod("V1", "G62, G90, G122, G150, G182"), vod("V2", "k77, k105, k165, k197"),
     fightLog("L6", "Player 12 takes 10 (overhead MAGIC) at P4 +241, S+57 of cycle 4"),
   ),
