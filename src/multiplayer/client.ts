@@ -200,6 +200,15 @@ export class RoomClient {
         this.set(this.current.kind === "fighting" ? { ...this.current, roster: event.roster } : { kind: "lobby", connection, roster: event.roster, running: this.running });
         return;
       }
+      case "setup": {
+        // The room is on another fight now. The page reads this back and reloads onto it, since a fight is a pure
+        // function of its seed from its first tick and cannot be changed under a running one.
+        const moved: Connection = { ...connection, seed: event.seed, startPhase: event.startPhase };
+        this.connection = moved;
+        rememberSeat(moved);
+        this.set(this.current.kind === "fighting" ? { ...this.current, connection: moved } : { kind: "lobby", connection: moved, roster: this.roster, running: this.running });
+        return;
+      }
       case "start":
         this.running = false;
         this.set({ kind: "fighting", connection, roster: this.roster, startedAt: event.at });
@@ -251,6 +260,11 @@ export class RoomClient {
     this.post("/gear", { gear });
   }
 
+  /** Host only: moves the room to the fight this page is on, so everyone else comes to it. */
+  setup(seed: number, startPhase: number): void {
+    this.post("/setup", { seed, startPhase });
+  }
+
   start(): void {
     this.post("/start", {});
   }
@@ -272,9 +286,12 @@ export class RoomClient {
     this.post("/authority", { authority });
   }
 
-  /** Host only: puts the room back in its lobby so the same team can run the fight again. */
-  again(): void {
-    this.post("/again", {});
+  /**
+   * Host only: puts the room back in its lobby so the same team can run the fight again, on another seed or
+   * starting phase if one is named, which is how the host's own fight controls move the whole room.
+   */
+  again(setup: Readonly<{ seed: number; startPhase: number }> | null = null): void {
+    this.post("/again", setup === null ? {} : { seed: setup.seed, startPhase: setup.startPhase });
   }
 
   /** Waits for the seat to be given up, so a reload can rejoin under the same name without racing itself. */

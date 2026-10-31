@@ -281,6 +281,63 @@ describe("ready and start", () => {
   });
 });
 
+describe("moving the room to another fight", () => {
+  it("tells every stream when the host changes the seed or the phase, so nobody is left on the old one", async () => {
+    const host = await open("Zoy", 4242, 1);
+    const guest = await join(host.code, "Ziad");
+    const stream = await listen(guest);
+    await stream.next("welcome");
+
+    const moved = await post(`/mp/rooms/${host.code}/setup`, { playerId: host.playerId, token: host.token, seed: 777, startPhase: 4 });
+    expect(moved.status).toBe(200);
+
+    const setup = await stream.next("setup");
+    expect(setup).toMatchObject({ seed: 777, startPhase: 4 });
+
+    // A joiner from here on is welcomed onto the fight the room actually moved to.
+    const late = await join(host.code, "Pat");
+    expect(late).toMatchObject({ seed: 777, startPhase: 4 });
+    stream.close();
+  }, 10000);
+
+  it("refuses a guest moving the room, and a phase no fight has", async () => {
+    const host = await open("Zoy", 4242, 1);
+    const guest = await join(host.code, "Ziad");
+    expect((await post(`/mp/rooms/${host.code}/setup`, { playerId: guest.playerId, token: guest.token, seed: 777, startPhase: 4 })).status).toBe(409);
+    expect((await post(`/mp/rooms/${host.code}/setup`, { playerId: host.playerId, token: host.token, seed: 777, startPhase: 9 })).status).toBe(400);
+  });
+});
+
+describe("the host's own fight controls", () => {
+  it("move the room to the new fight and send everyone back for it, in that order", async () => {
+    const host = await open("Zoy", 4242, 1);
+    const guest = await join(host.code, "Ziad");
+    const stream = await listen(guest);
+    await stream.next("welcome");
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: host.playerId, token: host.token, ready: true });
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: guest.playerId, token: guest.token, ready: true });
+    await post(`/mp/rooms/${host.code}/start`, { playerId: host.playerId, token: host.token });
+    await stream.next("start");
+
+    const again = await post(`/mp/rooms/${host.code}/again`, { playerId: host.playerId, token: host.token, seed: 31337, startPhase: 3 });
+    expect(again.status).toBe(200);
+
+    // The setup has to land before the regroup, or a client goes back for the fight it was already on.
+    const setup = await stream.next("setup");
+    expect(setup).toMatchObject({ seed: 31337, startPhase: 3 });
+    expect(await stream.next("regroup")).toMatchObject({ run: 1 });
+    expect(await join(host.code, "Pat")).toMatchObject({ seed: 31337, startPhase: 3 });
+    stream.close();
+  }, 10000);
+
+  it("are refused to a guest, so one client cannot restart the room from under the others", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    expect((await post(`/mp/rooms/${host.code}/again`, { playerId: guest.playerId, token: guest.token })).status).toBe(409);
+    expect((await post(`/mp/rooms/${host.code}/again`, { playerId: host.playerId, token: host.token, seed: 1, startPhase: 7 })).status).toBe(400);
+  });
+});
+
 describe("a death", () => {
   it("reaches the other roster at once, so the dead leave the list and the boss moves on", async () => {
     const host = await open("Zoy");

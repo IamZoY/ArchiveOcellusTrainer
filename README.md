@@ -45,6 +45,11 @@ Nobody joins a fight halfway, because every client runs it from its seed from th
 fight is on takes a seat for the next run and waits in the lobby, and the host's **Restart the fight** starts that
 run for the whole room.
 
+The fight itself belongs to the room, not to a page. **Start at**, **Start fight**, **Restart** and the result's
+retry are the host's while a room is open: each of them moves the room to that seed and that starting phase, and
+every other client loads the page again on it. A guest's copies are disabled, since a page that restarted on its
+own would be running a fight nobody else is in.
+
 The room server carries the words between machines and holds no fight of its own. It serves the built site too, so a
 VPS needs one process:
 

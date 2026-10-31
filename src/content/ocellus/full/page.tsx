@@ -112,7 +112,8 @@ function rememberFlag(name: string, on: boolean): void {
   window.history.replaceState(window.history.state, "", url.href);
 }
 
-function writeParams(params: Params, fresh = true): void {
+/** The address this page would have with these settings: the one place that knows what a setting is called. */
+function paramsUrl(params: Params, fresh: boolean): URL {
   const url = new URL(window.location.href);
   url.searchParams.set("phase", String(params.startPhase));
   url.searchParams.delete("party");
@@ -131,8 +132,22 @@ function writeParams(params: Params, fresh = true): void {
   url.searchParams.set("practice", params.invincible ? "1" : "0");
   if (fresh) url.searchParams.delete("seed");
   else url.searchParams.set("seed", String(params.seed));
-  window.location.assign(url.href);
+  return url;
 }
+
+function writeParams(params: Params, fresh = true): void {
+  window.location.assign(paramsUrl(params, fresh).href);
+}
+
+/**
+ * Puts these settings in the address bar without going anywhere, for when something else is about to load the page:
+ * in a room that is the regroup every client does together, and it must find the host's choices already written.
+ */
+function stageParams(params: Params): void {
+  window.history.replaceState(window.history.state, "", paramsUrl(params, false).href);
+}
+
+const freshSeed = (): number => crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
 
 function createTrainer() {
   const saved = keepStorageUsable();
@@ -478,7 +493,10 @@ function PausedNote({ pauses }: Readonly<{ pauses: readonly Pause[] }>) {
   return <p id="run_result_paused">Paused {pauses.length === 1 ? "once" : `${pauses.length} times`}, for {seconds} s in all.</p>;
 }
 
-function Result({ stage, region, params, clock }: Readonly<{ stage: Stage; region: FightRegion; params: Params; clock: RunClock }>) {
+/** What the result needs of a shared fight: who may start the next run, and how. */
+type RoomRetry = Readonly<{ host: boolean; again(): void }>;
+
+function Result({ stage, region, params, clock, room }: Readonly<{ stage: Stage; region: FightRegion; params: Params; clock: RunClock; room: RoomRetry | null }>) {
   useRegionTicks(region);
   const ending = endingOf(stage);
   if (ending === null) return null;
@@ -491,10 +509,14 @@ function Result({ stage, region, params, clock }: Readonly<{ stage: Stage; regio
         {ending.won ? "Challenge complete" : "You fell"} after <b>{formatTicks(ending.ticks)}</b> ({ending.ticks} ticks), in {ending.phase.toLowerCase()}.
       </p>
       <PausedNote pauses={clock.pauses()} />
+      {/* In a room the next run is the room's to start: a page that reloaded on its own would leave the team
+          behind on a fight nobody else is running. */}
       <div className="fight-result-buttons">
-        <RuneScapeButton id="result_restart" type="button" onClick={() => again(true)}>Try again</RuneScapeButton>
-        <RuneScapeButton id="result_retry" type="button" onClick={() => again(false)}>Same seed</RuneScapeButton>
+        {room === null && <RuneScapeButton id="result_restart" type="button" onClick={() => again(true)}>Try again</RuneScapeButton>}
+        {room === null && <RuneScapeButton id="result_retry" type="button" onClick={() => again(false)}>Same seed</RuneScapeButton>}
+        {room !== null && room.host && <RuneScapeButton id="result_again" type="button" onClick={() => room.again()}>Run it again</RuneScapeButton>}
       </div>
+      {room !== null && !room.host && <p className="fight-result-follow">The host starts the next run.</p>}
       <p className="fight-result-follow">
         Updates and new sims:{" "}
         {UPDATE_LINKS.map((link, index) => (
@@ -551,7 +573,10 @@ function countedNames(items: readonly TierItem[]): string {
   return [...counts].map(([name, count]) => (count === 1 ? name : `${name} ×${count}`)).join(", ");
 }
 
-function FullFightSidebar({ params, region, stage, clock, loadouts, coop }: Readonly<{ params: Params; region: FightRegion; stage: Stage | null; clock: RunClock; loadouts: TierLoadouts; coop: React.ReactNode }>) {
+/** How this page starts a fight: on its own, or by asking the room, which then takes everyone with it. */
+type StartFight = Readonly<{ run(params: Params, fresh: boolean): void; yours: boolean }>;
+
+function FullFightSidebar({ params, region, stage, clock, loadouts, coop, start }: Readonly<{ params: Params; region: FightRegion; stage: Stage | null; clock: RunClock; loadouts: TierLoadouts; coop: React.ReactNode; start: StartFight }>) {
   const [draft, setDraft] = useState<Omit<Params, "tier">>(params);
   const set = (patch: Partial<Omit<Params, "tier">>) => setDraft((current) => ({ ...current, ...patch }));
   const { tier, active } = useTierLoadout(loadouts);
@@ -610,9 +635,10 @@ function FullFightSidebar({ params, region, stage, clock, loadouts, coop }: Read
               }}
             />
           </label>
-          <RuneScapeButton id="start_fight" type="button" onClick={() => writeParams(chosen())}>Start fight</RuneScapeButton>
+          <RuneScapeButton id="start_fight" type="button" disabled={!start.yours} onClick={() => start.run(chosen(), true)}>Start fight</RuneScapeButton>
           {/* A reload, not an in-place reset: the SDK keeps clicks queued for the next world tick, and a reset would play them in the new run. */}
-          <RuneScapeButton id="restart_fight" type="button" onClick={() => writeParams(chosen(), false)}>Restart</RuneScapeButton>
+          <RuneScapeButton id="restart_fight" type="button" disabled={!start.yours} onClick={() => start.run(chosen(), false)}>Restart</RuneScapeButton>
+          {!start.yours && <small id="fight_is_the_hosts">The host starts and restarts the fight for the room.</small>}
           {(stage === null || endingOf(stage) === null) && <RunPauseButton clock={clock} />}
         </>
       }
@@ -931,7 +957,28 @@ export function FullFightPage() {
     [region, params.seed, params.startPhase, params.weapon, clock, loadouts],
   );
   const coop = useCoop(bridge);
-  const inRoom = coop.client.phase().kind === "lobby" || coop.client.phase().kind === "fighting";
+  const inRoom = coop.inRoom;
+  const hosting = coop.client.isHost();
+  /**
+   * Alone, every fight control loads this page on the new fight. In a room it goes through the room instead, or
+   * this client would walk off on a fight of its own while everyone else carried on with the old one; the choices
+   * are written to the address bar first, because the regroup that follows loads the page from it.
+   */
+  const start: StartFight = useMemo(
+    () => ({
+      yours: !inRoom || hosting,
+      run: (next, fresh) => {
+        if (!inRoom) {
+          writeParams(next, fresh);
+          return;
+        }
+        const settled = { ...next, seed: fresh ? freshSeed() : next.seed };
+        stageParams(settled);
+        coop.client.again({ seed: settled.seed, startPhase: settled.startPhase });
+      },
+    }),
+    [inRoom, hosting, coop.client],
+  );
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -972,7 +1019,7 @@ ${LOBBY_CSS}`;
         <div id="hud_corner">
           <Chatbox stage={stage} region={region} />
         </div>
-        {stage && !coop.spectating && <Result stage={stage} region={region} params={params} clock={clock} />}
+        {stage && !coop.spectating && <Result stage={stage} region={region} params={params} clock={clock} room={inRoom ? { host: hosting, again: () => coop.client.again() } : null} />}
         {coop.dead && <SpectateBanner watching={coop.watchingName} />}
         {!ended && !inRoom && <RunGate clock={clock} ready={ready} />}
       </GameOverlay>
@@ -982,6 +1029,7 @@ ${LOBBY_CSS}`;
         stage={stage}
         clock={clock}
         loadouts={loadouts}
+        start={start}
         coop={<CoopPanel client={coop.client} seed={params.seed} startPhase={params.startPhase} targetId={coop.targetId} gear={bridge.gear()} />}
       />
     </TrainerApp>

@@ -29,6 +29,12 @@ export type CoopHandle = Readonly<{
    * waits until the whole team is down, which is when the fight is really over.
    */
   spectating: boolean;
+  /**
+   * This page belongs to a room, so the fight is the room's to start. True from the first paint when the address
+   * bar names a room, because the page is ready again long before the stream is: the solo Start would otherwise
+   * be there to click in between, and a client that took it would run the fight alone while the room waited.
+   */
+  inRoom: boolean;
 }>;
 
 /** What the page must give the hook so it can watch and steer the fight. */
@@ -59,7 +65,11 @@ function savedName(): string {
   }
 }
 
-/** Sends the page to the host's seed, keeping the room so the reload lands straight back in the lobby. */
+/**
+ * Sends the page to the room's fight, keeping the room so the reload lands straight back in the lobby. It is also
+ * how a fresh run starts: a fight runs off its seed from its first tick and cannot be rewound under the renderer,
+ * so the page is loaded again on the same one. Everything the room decides travels here, seed and phase both.
+ */
 function reloadOnto(connection: Connection): void {
   const url = new URL(window.location.href);
   url.searchParams.set("seed", String(connection.seed));
@@ -68,15 +78,9 @@ function reloadOnto(connection: Connection): void {
   window.location.replace(url.toString());
 }
 
-/**
- * A fresh run needs a fresh fight, and a running region cannot be rebuilt under the renderer, so the page reloads
- * with the room and seed it already has and auto-joins straight back into the lobby.
- */
-function reloadIntoRoom(code: string, seed: number): void {
-  const url = new URL(window.location.href);
-  url.searchParams.set("room", code);
-  url.searchParams.set("seed", String(seed));
-  window.location.replace(url.toString());
+/** True when this page is running the fight the room is on, rather than one of its own. */
+function onTheRoomsFight(connection: Connection, seed: number, startPhase: number): boolean {
+  return connection.seed === seed && connection.startPhase === startPhase;
 }
 
 export function useCoop(bridge: FightBridge): CoopHandle {
@@ -86,7 +90,7 @@ export function useCoop(bridge: FightBridge): CoopHandle {
     client.on({
       regroup: () => {
         const now = client.phase();
-        if (now.kind === "lobby" || now.kind === "fighting") reloadIntoRoom(now.connection.code, now.connection.seed);
+        if (now.kind === "lobby" || now.kind === "fighting") reloadOnto(now.connection);
       },
     });
   }, [client]);
@@ -97,6 +101,8 @@ export function useCoop(bridge: FightBridge): CoopHandle {
   const [session, setSession] = useState<MultiplayerSession | null>(null);
   const [, bump] = useState(0);
   const joined = useRef(false);
+  /** Whether this page has gone for a room at all, which a code in the address bar alone does not say. */
+  const [tried, setTried] = useState(false);
 
   // A link with a room code in it joins by itself, which is also how a page comes back after a reload. A tab that
   // already holds a seat in that room takes it back instead of joining, so it keeps its name, its host seat and its
@@ -108,6 +114,7 @@ export function useCoop(bridge: FightBridge): CoopHandle {
     joined.current = true;
     const held = savedSeat(code);
     if (held !== null) {
+      setTried(true);
       client.resume(code, held, bridge.seed, bridge.startPhase);
       return;
     }
@@ -116,17 +123,27 @@ export function useCoop(bridge: FightBridge): CoopHandle {
       joined.current = false;
       return;
     }
+    setTried(true);
     void client.join(code, name.trim(), bridge.gear());
   }, [client, bridge]);
 
-  // A guest on the wrong seed cannot share this fight, so it reloads onto the host's before anything starts. The
-  // seat is given up first, or the page that comes back would find its own name already in the room.
+  // Changing a setting here loads the page again on a new fight, which for the host is the room moving with them:
+  // the room is told, and everyone else comes along. A guest cannot take the room anywhere, so this is the host's.
+  useEffect(() => {
+    if (phase.kind !== "lobby") return;
+    const { connection } = phase;
+    if (!connection.host || onTheRoomsFight(connection, bridge.seed, bridge.startPhase)) return;
+    client.setup(bridge.seed, bridge.startPhase);
+  }, [phase, bridge.seed, bridge.startPhase, client]);
+
+  // A guest on another seed or another starting phase is not in this fight at all, so it loads the room's before
+  // anything starts. The seat is given up first, or the page that comes back would find its own name in the room.
   useEffect(() => {
     if (phase.kind !== "lobby" && phase.kind !== "fighting") return;
     const { connection } = phase;
-    if (connection.host || connection.seed === bridge.seed) return;
+    if (connection.host || onTheRoomsFight(connection, bridge.seed, bridge.startPhase)) return;
     void client.leaveAndWait().then(() => reloadOnto(connection));
-  }, [phase, bridge.seed, client]);
+  }, [phase, bridge.seed, bridge.startPhase, client]);
 
   useEffect(() => {
     if (phase.kind !== "fighting") {
@@ -192,5 +209,7 @@ export function useCoop(bridge: FightBridge): CoopHandle {
   const watchingName = view.watching === null ? null : roster.find((member) => member.id === view.watching)?.name ?? null;
 
   const allDown = roster.length > 0 && roster.every((member) => member.dead);
-  return { client, session, targetId, dead: view.dead, watchingName, spectating: view.dead && !allDown };
+  const settled = phase.kind === "offline" || phase.kind === "failed";
+  const inRoom = settled ? tried && codeInUrl() !== null : true;
+  return { client, session, targetId, dead: view.dead, watchingName, spectating: view.dead && !allDown, inRoom };
 }

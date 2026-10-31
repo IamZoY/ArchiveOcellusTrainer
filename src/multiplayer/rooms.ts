@@ -61,8 +61,9 @@ type Seat = {
 
 export type Room = {
   readonly code: RoomCode;
-  readonly seed: number;
-  readonly startPhase: number;
+  /** The fight the room is on. It is the host's to choose, and changing it is what moves everyone to it. */
+  seed: number;
+  startPhase: number;
   hostId: PlayerId;
   started: boolean;
   startedAt: number | null;
@@ -165,6 +166,23 @@ export class Rooms {
     return ok(found.value.room);
   }
 
+  /**
+   * The host has moved to another fight: another seed, another starting phase, or both, which in this trainer is
+   * what changing a setting does. The room follows them, because a room is a team running one fight, and the
+   * others are told so they can come along.
+   */
+  setup(code: RoomCode, id: PlayerId, token: string, seed: number, startPhase: number, now: number): Outcome<Room> {
+    const found = this.authorise(code, id, token);
+    if (!found.ok) return found;
+    const { room, seat } = found.value;
+    if (room.hostId !== seat.id) return no({ kind: "not-the-host" });
+    if (room.started) return no({ kind: "already-started" });
+    room.seed = seed;
+    room.startPhase = startPhase;
+    seat.seenAt = now;
+    return ok(room);
+  }
+
   /** The host starts the fight, and only once everyone has said they are ready. */
   start(code: RoomCode, id: PlayerId, token: string, now: number): Outcome<Room> {
     const found = this.authorise(code, id, token);
@@ -182,11 +200,17 @@ export class Rooms {
    * Runs the same fight again. The seat list, the code and the seed all stay; everyone is alive and unready, so the
    * team gathers once and can go round as many times as it likes without passing the code again.
    */
-  restart(code: RoomCode, id: PlayerId, token: string, now: number): Outcome<Room> {
+  restart(code: RoomCode, id: PlayerId, token: string, now: number, setup: Readonly<{ seed: number; startPhase: number }> | null = null): Outcome<Room> {
     const found = this.authorise(code, id, token);
     if (!found.ok) return found;
     const { room, seat } = found.value;
     if (room.hostId !== seat.id) return no({ kind: "not-the-host" });
+    // Starting over is also how the host moves the team to another fight, since the two are one press of a button
+    // on their screen: Start fight gives a fresh seed, Restart keeps the one everyone is already on.
+    if (setup !== null) {
+      room.seed = setup.seed;
+      room.startPhase = setup.startPhase;
+    }
     room.started = false;
     room.startedAt = null;
     room.runs += 1;

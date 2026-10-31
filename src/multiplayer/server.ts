@@ -12,7 +12,7 @@ import { randomFillSync } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import type { PlayerId, RoomCode, ServerEvent } from "./protocol";
-import { HEARTBEAT_MS, encodeEvent, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
+import { HEARTBEAT_MS, START_PHASES, encodeEvent, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState, parseSetup } from "./protocol";
 import type { Room } from "./rooms";
 import { Rooms, drainStates, randomFrom, rosterOf, why } from "./rooms";
 
@@ -158,11 +158,9 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
       const body = await readBody(request);
       const name = parseName(field(body, "name"));
       if (name === null) return send(response, 400, { error: "a name is needed" });
-      const seed = Number(field(body, "seed"));
-      const startPhase = Number(field(body, "startPhase"));
-      if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return send(response, 400, { error: "a 32-bit seed is needed" });
-      if (![1, 2, 3, 4].includes(startPhase)) return send(response, 400, { error: "startPhase must be 1 to 4" });
-      const { room, seat } = rooms.open(name, seed, startPhase, now, parseGear(field(body, "gear"), TIERS, WEAPONS));
+      const setup = parseSetup(field(body, "seed"), field(body, "startPhase"));
+      if (setup === null) return send(response, 400, { error: `a 32-bit seed and a phase of ${START_PHASES.join(", ")} are needed` });
+      const { room, seat } = rooms.open(name, setup.seed, setup.startPhase, now, parseGear(field(body, "gear"), TIERS, WEAPONS));
       return send(response, 200, { code: room.code, playerId: seat.id, token: seat.token, seed: room.seed, startPhase: room.startPhase, host: true });
     }
 
@@ -201,6 +199,14 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
         announce(dressed.value);
         return send(response, 200, { ok: true });
       }
+      case "setup": {
+        const setup = parseSetup(field(body, "seed"), field(body, "startPhase"));
+        if (setup === null) return send(response, 400, { error: "that fight does not parse" });
+        const moved = rooms.setup(code, id, token, setup.seed, setup.startPhase, now);
+        if (!moved.ok) return send(response, 409, { error: why(moved.why) });
+        publish(code, { kind: "setup", seed: moved.value.seed, startPhase: moved.value.startPhase });
+        return send(response, 200, { ok: true });
+      }
       case "start": {
         const started = rooms.start(code, id, token, now);
         if (!started.ok) return send(response, 409, { error: why(started.why) });
@@ -237,8 +243,13 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
         return send(response, 200, { ok: true });
       }
       case "again": {
-        const again = rooms.restart(code, id, token, now);
+        // A seed and a phase are optional here: without them the room runs the fight it is already on again.
+        const asked = field(body, "seed") === undefined ? null : parseSetup(field(body, "seed"), field(body, "startPhase"));
+        if (field(body, "seed") !== undefined && asked === null) return send(response, 400, { error: "that fight does not parse" });
+        const again = rooms.restart(code, id, token, now, asked);
         if (!again.ok) return send(response, 409, { error: why(again.why) });
+        // The setup goes first, so every client has the fight before it is told to go back for it.
+        if (asked !== null) publish(code, { kind: "setup", seed: again.value.seed, startPhase: again.value.startPhase });
         publish(code, { kind: "regroup", run: again.value.runs });
         announce(again.value);
         return send(response, 200, { ok: true });

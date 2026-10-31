@@ -89,6 +89,8 @@ export type ServerEvent =
   | Readonly<{ kind: "welcome"; you: PlayerId; code: RoomCode; seed: number; startPhase: number; roster: Roster; started: boolean }>
   | Readonly<{ kind: "roster"; roster: Roster }>
   | Readonly<{ kind: "start"; seed: number; startPhase: number; at: number; run: number }>
+  /** The host has changed which fight the room is about to run: its seed, the phase it starts at, or both. */
+  | Readonly<{ kind: "setup"; seed: number; startPhase: number }>
   | Readonly<{ kind: "regroup"; run: number }>
   | Readonly<{ kind: "states"; states: readonly PlayerState[] }>
   | Readonly<{ kind: "authority"; authority: Authority }>
@@ -107,6 +109,7 @@ const EVERY_KIND: Readonly<Record<EventKind, true>> = {
   welcome: true,
   roster: true,
   start: true,
+  setup: true,
   regroup: true,
   states: true,
   authority: true,
@@ -212,6 +215,16 @@ export function parseName(raw: unknown): string | null {
   if (name === null) return null;
   const cleaned = name.trim().replace(/[^\w \-]/gu, "").replace(/\s+/gu, " ");
   return cleaned.length === 0 ? null : cleaned.slice(0, NAME_MAX);
+}
+
+export const START_PHASES: readonly number[] = [1, 2, 3, 4];
+
+/** A seed and a phase a fight could actually be run from, which is all the room knows of either. */
+export function parseSetup(rawSeed: unknown, rawPhase: unknown): Readonly<{ seed: number; startPhase: number }> | null {
+  const seed = count(rawSeed);
+  const startPhase = count(rawPhase);
+  if (seed === null || seed > 0xffffffff || startPhase === null || !START_PHASES.includes(startPhase)) return null;
+  return { seed, startPhase };
 }
 
 export function isRoomCode(raw: unknown): raw is RoomCode {

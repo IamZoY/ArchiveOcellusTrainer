@@ -70,11 +70,20 @@ export function codeInUrl(): string | null {
   return isRoomCode(raw) ? raw : null;
 }
 
-function putCodeInUrl(code: string | null): void {
+/**
+ * Keeps the address bar on the room and the fight it is running, so reloading this page comes back to both rather
+ * than to a fresh seed of its own, and so the link in it is one a friend can be sent.
+ */
+function putRoomInUrl(room: Readonly<{ code: string; seed: number; startPhase: number }> | null): void {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
-  if (code === null) url.searchParams.delete("room");
-  else url.searchParams.set("room", code);
+  if (room === null) {
+    url.searchParams.delete("room");
+  } else {
+    url.searchParams.set("room", room.code);
+    url.searchParams.set("seed", String(room.seed));
+    url.searchParams.set("phase", String(room.startPhase));
+  }
   window.history.replaceState(null, "", url);
 }
 
@@ -103,10 +112,13 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
   const phase = useClient(client);
   const [name, setName] = useState(savedName);
   const [code, setCode] = useState(() => codeInUrl() ?? "");
-  const [ready, setReady] = useState(false);
+  // Ready is read off the roster rather than remembered here: a reload between runs forgets a local flag while the
+  // room still holds the seat, and the button would then offer to do what has already been done.
+  const seated = phase.kind === "lobby" || phase.kind === "fighting" ? phase.roster.find((member) => member.id === phase.connection.you) : undefined;
+  const ready = seated?.ready === true;
 
   useEffect(() => {
-    if (phase.kind === "lobby" || phase.kind === "fighting") putCodeInUrl(phase.connection.code);
+    if (phase.kind === "lobby" || phase.kind === "fighting") putRoomInUrl(phase.connection);
   }, [phase]);
 
   const worn = `${gear.tier}:${gear.weapon ?? "-"}:${gear.edited}`;
@@ -127,7 +139,8 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
       return (
         <div id="coop_panel">
           <p className="coop-error">{phase.error}</p>
-          <button type="button" onClick={() => client.leave()}>
+          {/* The code goes out of the address bar too, or this page would keep trying to be in that room. */}
+          <button type="button" onClick={() => { putRoomInUrl(null); client.leave(); }}>
             Back
           </button>
         </div>
@@ -178,15 +191,7 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
           </div>
           <p className="coop-hint">{phase.running ? "That fight is already under way." : "Give these six letters to your friends."}</p>
           <Roster roster={everyone} you={phase.connection.you} targetId={null} />
-          <button
-            type="button"
-            id="coop_ready"
-            onClick={() => {
-              const next = !ready;
-              setReady(next);
-              client.setReady(next);
-            }}
-          >
+          <button type="button" id="coop_ready" onClick={() => client.setReady(!ready)}>
             {ready ? "Not ready" : "Ready"}
           </button>
           {/* A fight runs off its seed from tick one, so nobody joins one halfway. Starting it over is the way in. */}
@@ -202,7 +207,7 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
             </button>
           )}
           {!phase.running && !phase.connection.host && <p className="coop-hint">The host starts the fight.</p>}
-          <button type="button" onClick={() => { putCodeInUrl(null); client.leave(); }}>
+          <button type="button" onClick={() => { putRoomInUrl(null); client.leave(); }}>
             Leave
           </button>
         </div>
@@ -219,7 +224,7 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
             </button>
           )}
           {!phase.connection.host && <p className="coop-hint">The host can run it again from here.</p>}
-          <button type="button" onClick={() => { putCodeInUrl(null); client.leave(); }}>
+          <button type="button" onClick={() => { putRoomInUrl(null); client.leave(); }}>
             Leave
           </button>
         </div>

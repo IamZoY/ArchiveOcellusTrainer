@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Rooms, drainStates, randomFrom, rosterOf, statesOf, why } from "./rooms";
 import type { PlayerState } from "./protocol";
-import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState, parseWorn } from "./protocol";
+import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState, parseSetup, parseWorn } from "./protocol";
 
 /** A counter stands in for randomness so every code and id in a test is known in advance. */
 function counting() {
@@ -93,6 +93,52 @@ describe("joining", () => {
     if (!back.ok) throw new Error("reclaim refused");
     expect(all.setReady(room.code, seat.id, seat.token, true, 0)).toMatchObject({ ok: false, why: { kind: "bad-token" } });
     expect(all.setReady(room.code, seat.id, back.value.seat.token, true, 0).ok).toBe(true);
+  });
+});
+
+describe("the fight a room is on", () => {
+  it("follows the host, so changing a setting takes the whole room to the new fight", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    expect(all.setup(room.code, seat.id, seat.token, 99, 4, 1).ok).toBe(true);
+    expect(room.seed).toBe(99);
+    expect(room.startPhase).toBe(4);
+  });
+
+  it("is not a guest's to change", () => {
+    const all = rooms();
+    const { room } = all.open("Zoy", 7, 1, 0);
+    const guest = all.join(room.code, "Ziad", 0);
+    if (!guest.ok) throw new Error("join failed");
+    expect(all.setup(room.code, guest.value.seat.id, guest.value.seat.token, 99, 4, 1)).toMatchObject({ ok: false, why: { kind: "not-the-host" } });
+    expect(room.seed).toBe(7);
+  });
+
+  it("cannot change under a fight that is already running", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    all.setReady(room.code, seat.id, seat.token, true, 0);
+    all.start(room.code, seat.id, seat.token, 0);
+    expect(all.setup(room.code, seat.id, seat.token, 99, 4, 1)).toMatchObject({ ok: false, why: { kind: "already-started" } });
+    expect(room.seed).toBe(7);
+  });
+});
+
+describe("starting the next run on another fight", () => {
+  it("carries the host's new seed and phase into the run everyone regroups for", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    all.setReady(room.code, seat.id, seat.token, true, 0);
+    all.start(room.code, seat.id, seat.token, 0);
+    expect(all.restart(room.code, seat.id, seat.token, 1, { seed: 99, startPhase: 4 }).ok).toBe(true);
+    expect(room).toMatchObject({ seed: 99, startPhase: 4, started: false, runs: 1 });
+  });
+
+  it("leaves the fight alone when the host only wants the same one again", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 2, 0);
+    expect(all.restart(room.code, seat.id, seat.token, 1).ok).toBe(true);
+    expect(room).toMatchObject({ seed: 7, startPhase: 2 });
   });
 });
 
@@ -235,6 +281,16 @@ describe("parsing what arrives from another machine", () => {
   it("carries a worn kit through a whole state, so a swap mid-fight crosses the wire", () => {
     expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1, worn: { weapon: 22547 } }, "me")?.worn).toEqual({ weapon: 22547 });
     expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1 }, "me")?.worn).toBeNull();
+  });
+
+  it("reads a fight a client could actually run, and refuses anything else", () => {
+    expect(parseSetup(4242, 3)).toEqual({ seed: 4242, startPhase: 3 });
+    expect(parseSetup(0, 1)).toEqual({ seed: 0, startPhase: 1 });
+    expect(parseSetup(-1, 1)).toBeNull();
+    expect(parseSetup(0x1_0000_0000, 1)).toBeNull();
+    expect(parseSetup(1.5, 1)).toBeNull();
+    expect(parseSetup(1, 5)).toBeNull();
+    expect(parseSetup(1, "3")).toBeNull();
   });
 
   it("keeps only the prayers the fight knows", () => {
@@ -384,7 +440,7 @@ describe("running it again", () => {
 describe("the stream's event names", () => {
   it("lists every kind, because a kind left out would never reach a client", () => {
     // The names a browser listens for come from this list; the server writes the same names.
-    expect([...EVENT_KINDS].sort()).toEqual(["authority", "ended", "intent", "ping", "regroup", "roster", "start", "states", "welcome"]);
+    expect([...EVENT_KINDS].sort()).toEqual(["authority", "ended", "intent", "ping", "regroup", "roster", "setup", "start", "states", "welcome"]);
   });
 });
 
