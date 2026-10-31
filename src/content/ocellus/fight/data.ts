@@ -366,8 +366,6 @@ export const P2 = {
   shoutLasts: 4,
 } as const;
 
-const NO_TICKS: readonly number[] = [];
-
 export const P3 = {
   combatLevel: 1601,
   defence: 250,
@@ -389,12 +387,15 @@ export const P3 = {
    * carrying on across quadrant falls. The other one alternates Untether and Insolence within a quadrant, Untether first
    * in the first quadrant and Insolence first in later ones. His HP plays no part (Untether at 91%, 85%, 63%). [K]
    * e.g. S U S I S U S I S | fall | I S U S I ... and S U S I | fall | S I S U S | fall | I S U ...
-   * On the segment's own clock from its start S: void bombs (when they drop) and the rifts. [R] [K]
+   * On the segment's own clock from its start S: void bombs, when they drop. [R] [K]
    */
-  first: { firstOther: "untether", bombs: [6, 9], rifts: NO_TICKS },
-  later: { firstOther: "insolence", bombs: [6], rifts: [3, 51, 111] },
-  /** Swings hit everyone near him on the animation tick: 1-7 through Protect from Melee. [R] [K] */
-  basicHitProtected: range(1, 7),
+  first: { firstOther: "untether", bombs: [6, 9] },
+  later: { firstOther: "insolence", bombs: [6] },
+  /** Rifts 3 into a later quadrant or after a survived Untether's slam, then every 48: 10 raid logs. */
+  riftsAfter: 3,
+  riftEvery: 48,
+  /** Swings hit everyone near him on the animation tick: 0-7 through Protect from Melee (10 raid logs). [R] [K] */
+  basicHitProtected: range(0, 7),
   basicHitUnprotected: range(12, 19),
   /**
    * The shadow slash lands the tick after its animation, on a band aimed at his tank (solo: you) and snapped to the
@@ -402,7 +403,7 @@ export const P3 = {
    * 111 bands in six fights
    */
   slashLands: 1,
-  slashDamage: range(25, 28),
+  slashDamage: range(25, 32),
   /** Insolence's bands: 3 wide, to the platform edge, at any angle. [V] duo 20:24, Bubba OSRS guide 4:56 [W] [K] */
   waveWidth: 3,
   /**
@@ -428,7 +429,7 @@ export const P3 = {
   /** The overhead severed is the one up on the tick before each cut. ocellus-sim phase3.ts:351 */
   severBefore: 1,
   panicLands: 2,
-  volleyDamage: range(20, 26),
+  volleyDamage: range(10, 29),
   patchDamage: range(6, 7),
   /** A void hurts whoever stands on it every second tick from the tick it dropped. */
   patchEvery: 2,
@@ -511,7 +512,7 @@ export const P3 = {
      * one raider outside, then 21 and 41 on the two still under. [M] 5:00: "step out is tick perfect".
      */
     slam: 29,
-    slamDamage: range(34, 39),
+    slamDamage: range(34, 42),
     aftershock: 30,
     aftershockDamage: range(18, 41),
     obliteration: 31,

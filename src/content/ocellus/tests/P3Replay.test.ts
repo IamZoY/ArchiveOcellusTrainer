@@ -65,6 +65,25 @@ describe("phase 3's replay rows match the fight logs at the phase marks", () => 
     expect(replayed(f.rows(), "L1")).toEqual(logged("L1"));
   });
 
+  test("a quadrant that falls after Untether drops the rift due 3 after the slam; the next come 3 into the new quadrant and every 48", () => {
+    const f = startP3({ seed: 1 });
+    close = f.close;
+    f.tickTo(U - 1, f.stayInReach);
+    const plan = (t: number) => (t <= 11 ? "under" : "out");
+    holdUntether(f, plan, 1, 10);
+    f.bossAt(75);
+    holdUntether(f, plan, 11, 30);
+    f.tickTo(U + 33);
+    f.stepOff();
+    f.tickTo(107);
+    f.stepOff();
+    f.tickTo(160, f.stayInReach);
+    const ticks = (kind: string) => f.rows().flatMap((row) => (row.events.some((event) => event.kind === kind) ? [row.tick] : []));
+    const opened = ticks("segment-started")[1];
+    expect(ticks("collapse-started")).toEqual([U + 31]);
+    expect(ticks("rift-spawned")).toEqual([opened + 3, opened + 3 + 48]);
+  });
+
   test("L6: the vine after the first spin, the aftershock under him, and the next quadrant's rift", () => {
     const f = startP3({ seed: 1 });
     close = f.close;

@@ -58,9 +58,11 @@ export const T = {
   poseLoopAfter: ticks(D.poseLoopAfter),
   collapseBurstEvery: ticks(D.collapseBurstEvery),
   shoutLasts: { short: ticks(D.shoutLasts.short), long: ticks(D.shoutLasts.long) },
+  riftsAfter: ticks(D.riftsAfter),
+  riftEvery: ticks(D.riftEvery),
   segment: {
-    first: { bombs: tickList(D.first.bombs), rifts: tickList(D.first.rifts) },
-    later: { bombs: tickList(D.later.bombs), rifts: tickList(D.later.rifts) },
+    first: { bombs: tickList(D.first.bombs) },
+    later: { bombs: tickList(D.later.bombs) },
   },
   untether: {
     pools: tickList(U.pools),

@@ -3,6 +3,7 @@ import { after, span } from "../../../../sim/brands";
 import type { Style } from "../../../../sim/combat";
 import type { Entries } from "../../../../sim/encounter";
 import type { Script } from "../../../../sim/script";
+import type { Handle } from "../../../../sim/timers";
 import type { Sourced } from "../../../../sim/sourced";
 import { each, minus, plus } from "../../../../sim/sourced";
 import type { ATile, Arm, Body, Quadrant } from "../../fight/geometry";
@@ -107,6 +108,9 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
   private quadrantSpins = 0;
   private quadrantOthers = 0;
   private riftKind: RiftKind | null = null;
+  /** The next rift's timer, and whether one fell due during a spin and waits for his next move. */
+  private riftTimer: Handle | null = null;
+  private riftOwed = false;
   private floorFraction: number = V.hpFloors.value[0];
   private patches: readonly Patch[] = [];
   private vine: Add | null = null;
@@ -206,9 +210,8 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
       m.after(minus(drop, T.bombOverheadBefore), (n) => this.bombOverhead(n));
       m.after(minus(drop, T.bombDropAfter), (n) => this.bombs(n));
     }
-    for (const spawn of each(plan.rifts)) m.after(spawn, (n) => this.spawnRift(n));
-    if (this.segment > 0 && this.riftKind === null) this.riftKind = m.pick("rift-kind", RIFT_ORDER);
-    else if (this.segment > 1 && this.riftKind !== null) this.riftKind = RIFT_ORDER[(RIFT_ORDER.indexOf(this.riftKind) + 1) % RIFT_ORDER.length];
+    if (this.segment > 0) this.rifting(m, T.riftsAfter);
+    this.riftKind = this.riftKind === null ? m.pick("rift-kind", RIFT_ORDER) : RIFT_ORDER[(RIFT_ORDER.indexOf(this.riftKind) + 1) % RIFT_ORDER.length];
     this.next(m, T.firstMove, (n) => this.swing(n, 0, 0));
   }
 
@@ -379,6 +382,7 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     const vine = V.vineAfterSpins.value.some((n) => n === this.quadrantSpins);
     this.next(m, plus(cut, T.afterSpin), (n) => {
       if (vine) this.spawnVine(n);
+      if (this.riftOwed) this.riftDue(n);
       this.swing(n, 0, 0);
     });
   }
@@ -526,6 +530,21 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     });
   }
 
+  /** The next rift `wait` on, replacing any due or owed; one that falls due during a spin waits for his next move. */
+  private rifting(m: P3Ctx<E>, wait: Sourced<TickSpan>): void {
+    if (this.riftTimer !== null) m.cancel(this.riftTimer);
+    this.riftOwed = false;
+    this.riftTimer = m.after(wait, (n) => {
+      if (this.stage.kind === "spin") this.riftOwed = true;
+      else this.riftDue(n);
+    });
+  }
+
+  private riftDue(m: P3Ctx<E>): void {
+    this.spawnRift(m);
+    this.rifting(m, T.riftEvery);
+  }
+
   private spawnRift(m: P3Ctx<E>): void {
     const kind = this.riftKind ?? "rift-basic";
     const tiles = nonEmpty(quadrantTiles(this.quadrant).filter((t) => this.world.isWalkable(t) && distanceToBody(this.body(m), t) >= V.riftClearance.value));
@@ -565,6 +584,7 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     else this.world.fighter.resetAttackDelay();
   }
 
+  /** His next rift is 3 after the slam lands, if the quadrant stands: a fall at U+31 ends the segment and drops it. */
   private untether(m: P3Ctx<E>): void {
     const q = this.quadrant;
     this.releaseVine(m, "lifted");
@@ -576,6 +596,7 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     const zone = this.body(m);
     this.stage = { kind: "untether", quadrant: q, zone };
     const u = T.untether;
+    this.rifting(m, plus(u.slam, T.riftsAfter));
     m.show({ kind: "zone", body: zone, erupts: after(m.now, u.erupt.value), slams: after(m.now, u.slam.value) });
     m.afterPhase(T.poseLoopAfter, (n) => n.boss.hold(SEQ.p3UnleashLoop));
     each(u.pools).forEach((wave, n) => m.afterPhase(wave, (o) => this.untetherPools(o, zone, n > 0)));

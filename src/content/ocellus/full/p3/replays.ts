@@ -27,7 +27,7 @@ export const P3_REPLAYS: Replays<P3Types, FightLog> = {
   "prayer-severed": { kind: "unlogged", why: "the logs carry no raider's prayer state" },
   "vine-rooted": { kind: "log", log: "L6", at: "L6.txt:3346 Void Vine appears at P3 +42", ticks: [42] },
   "vine-released": { kind: "unlogged", why: "a vine lives until raiders cut it, 7 to 32 ticks in [K]" },
-  "rift-spawned": { kind: "log", log: "L6", at: "L6.txt:3852 Void Augmenter appears at P3 +188, the segment at +185", ticks: [188] },
+  "rift-spawned": { kind: "log", log: "L6", at: "L6.txt:3548, 3734, 3852 rifts at P3 +91, +139 and +188", ticks: [91, 139, 188] },
   "rift-killed": { kind: "unlogged", why: "raiders kill rifts; the tick is theirs" },
   "collapse-started": { kind: "log", log: "L1", at: "L1.txt:2991 \"Run... It matters not...\" at P3 +90", ticks: [90] },
   "quadrant-fell": { kind: "unlogged", why: "the logs mark the collapse and the next segment; the floor's removal 13 ticks in is his [R] value" },
