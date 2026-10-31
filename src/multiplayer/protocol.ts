@@ -34,6 +34,9 @@ export type RoomCode = string;
 
 export type Style = "melee" | "ranged" | "magic";
 
+/** What a player did with their weapon on one tick, which is all anyone else needs to play the same animation. */
+export type Swing = "none" | "attack" | "special";
+
 export type WireTile = Readonly<{ x: number; y: number }>;
 
 /**
@@ -52,6 +55,7 @@ export type PlayerState = Readonly<{
   prayer: Style | null;
   dead: boolean;
   worn: Worn | null;
+  swing: Swing;
 }>;
 
 /**
@@ -121,6 +125,7 @@ const EVERY_KIND: Readonly<Record<EventKind, true>> = {
 export const EVENT_KINDS: readonly EventKind[] = Object.keys(EVERY_KIND).filter((kind): kind is EventKind => kind in EVERY_KIND);
 
 const STYLES: readonly Style[] = ["melee", "ranged", "magic"];
+const SWINGS: readonly Swing[] = ["none", "attack", "special"];
 
 const isRecord = (raw: unknown): raw is Readonly<Record<string, unknown>> => typeof raw === "object" && raw !== null && !Array.isArray(raw);
 
@@ -143,6 +148,11 @@ function text(raw: unknown, max: number): string | null {
 
 export function parseStyle(raw: unknown): Style | null {
   return STYLES.find((style) => style === raw) ?? null;
+}
+
+/** An unknown swing is read as none: a figure that stands still is better than one swinging at nothing. */
+export function parseSwing(raw: unknown): Swing {
+  return SWINGS.find((swing) => swing === raw) ?? "none";
 }
 
 export function parseTile(raw: unknown): WireTile | null {
@@ -170,7 +180,8 @@ export function parsePlayerState(raw: unknown, id: PlayerId): PlayerState | null
   const maxHp = count(field(raw, "maxHp"));
   if (at === null || tile === null || hp === null || maxHp === null || maxHp === 0) return null;
   const prayer = parseStyle(field(raw, "prayer"));
-  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer, dead: field(raw, "dead") === true, worn: parseWorn(field(raw, "worn")) };
+  const swing = parseSwing(field(raw, "swing"));
+  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer, dead: field(raw, "dead") === true, worn: parseWorn(field(raw, "worn")), swing };
 }
 
 export function parseIntent(raw: unknown): Intent | null {

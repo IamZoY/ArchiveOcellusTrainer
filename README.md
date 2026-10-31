@@ -26,8 +26,10 @@ npm start                       # http://127.0.0.1:8002
 Several people can train one fight together. One of you hosts: **Co-op** in the side panel gives a six-letter code,
 and everyone else types it in or opens the link, which carries `?room=CODE`. When all are ready the host starts, and
 every client runs that fight from the host's seed, so the boss's timings, cracks, rifts and explosions are the same
-for everyone. You see each other walk, pray and take damage live, each in their own gear, and a player who dies leaves
-the arena and keeps watching someone who is still up. Gear travels as names and item ids rather than a wardrobe: the
+for everyone. You see each other walk, swing and pray live, each in their own gear, and a player who dies leaves the
+arena and keeps watching someone who is still up. A swing crosses as the fact of it, not as an animation: the tick
+says that player attacked and whether it was a special, and their own figure plays what the weapon in its hands
+would, facing the boss to do it. Gear travels as names and item ids rather than a wardrobe: the
 tier each player picked dresses them until their first report lands, after which every client builds what they have
 on from its own catalog, so a swap mid-fight shows up on everyone's screen. A tier changed in the Loadout editor shows
 others the tier it started from, marked with a star.
@@ -49,6 +51,11 @@ The fight itself belongs to the room, not to a page. **Start at**, **Start fight
 retry are the host's while a room is open: each of them moves the room to that seed and that starting phase, and
 every other client loads the page again on it. A guest's copies are disabled, since a page that restarted on its
 own would be running a fight nobody else is in.
+
+A report is relayed in the turn the server hears it, and the sockets are set to send a small frame rather than wait
+to fill one, so a step costs one trip and nothing else. The rest of what you see is the game's own: every client
+anchors its tick to the start of the run, so a friend's step lands on your screen a tick after they took it, which
+is where it lands in game too.
 
 The room server carries the words between machines and holds no fight of its own. It serves the built site too, so a
 VPS needs one process:

@@ -17,7 +17,6 @@ import type { Room } from "./rooms";
 import { Rooms, drainStates, randomFrom, rosterOf, why } from "./rooms";
 
 const MAX_BODY_BYTES = 8192;
-const STATE_FLUSH_MS = 120;
 
 /** The server dresses nobody, so it only checks these are names a build could know, not that they suit each other. */
 const TIERS = ["raid", "max", "high", "mid", "low", "poor"];
@@ -76,8 +75,13 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   const heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
   const rooms = new Rooms(randomFrom(bytes));
   const streams = new Set<Stream>();
-  /** States are pooled and flushed on a timer so eight players reporting every tick is not eight fan-outs a tick. */
+  /**
+   * Rooms with something to say, sent at the end of the turn that heard it. Pooling by a timer instead would hold
+   * every report for part of its window, and a tile held back is a step everyone else takes late: the room sits
+   * between two machines that are each on their own 600ms tick, so the only delay worth keeping here is none.
+   */
   const dirty = new Set<RoomCode>();
+  let flushing = false;
 
   function publish(code: RoomCode, event: ServerEvent, except?: PlayerId): void {
     const frame = encodeEvent(event);
@@ -90,6 +94,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   const announce = (room: Room) => publish(room.code, { kind: "roster", roster: rosterOf(room) });
 
   function flush(): void {
+    flushing = false;
     for (const code of dirty) {
       const room = rooms.get(code);
       if (!room) continue;
@@ -97,6 +102,14 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
       if (states.length > 0) publish(code, { kind: "states", states });
     }
     dirty.clear();
+  }
+
+  /** Everything heard in this turn of the loop goes out together, which is as soon as it can go out at all. */
+  function soon(code: RoomCode): void {
+    dirty.add(code);
+    if (flushing) return;
+    flushing = true;
+    setImmediate(flush);
   }
 
   /**
@@ -110,9 +123,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     for (const stream of streams) stream.response.write(encodeEvent({ kind: "ping" }));
   }
 
-  const flusher = setInterval(flush, STATE_FLUSH_MS);
   const beater = setInterval(heartbeat, heartbeatMs);
-  flusher.unref?.();
   beater.unref?.();
 
   function openStream(request: IncomingMessage, response: ServerResponse, code: RoomCode, url: URL): void {
@@ -123,6 +134,9 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     const seat = room.seats.get(id);
     if (!seat || seat.token !== token) return send(response, 403, { error: "that seat is not yours" });
 
+    // Small frames, one a tick: without this they wait on Nagle for an acknowledgement that is not coming, which
+    // is tens of milliseconds added to every step a friend takes.
+    request.socket.setNoDelay(true);
     response.writeHead(200, {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-store",
@@ -219,7 +233,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
         const already = rooms.get(code)?.seats.get(id)?.dead === true;
         const reported = rooms.report(code, id, token, state, now);
         if (!reported.ok) return send(response, 403, { error: why(reported.why) });
-        dirty.add(code);
+        soon(code);
         // A death is roster news, not just another frame: it is what takes someone off the boss and out of the
         // list, and the client that died has stopped ticking and will not be saying it twice.
         if (state.dead && !already) announce(reported.value);
@@ -280,6 +294,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   }
 
   const server = createServer((request, response) => {
+    request.socket.setNoDelay(true);
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (!url.pathname.startsWith("/mp/")) {
       if (request.method !== "GET" && request.method !== "HEAD") return send(response, 405, { error: "GET only" });
@@ -291,7 +306,6 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   });
 
   const stop = () => {
-    clearInterval(flusher);
     clearInterval(beater);
     for (const stream of streams) stream.response.end();
     streams.clear();

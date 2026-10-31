@@ -12,7 +12,7 @@ function counting() {
 const rooms = () => new Rooms(counting());
 
 function stateAt(at: number, overrides: Partial<PlayerState> = {}): PlayerState {
-  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, worn: null, ...overrides };
+  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, worn: null, swing: "none", ...overrides };
 }
 
 describe("room codes", () => {
@@ -291,6 +291,14 @@ describe("parsing what arrives from another machine", () => {
     expect(parseSetup(1.5, 1)).toBeNull();
     expect(parseSetup(1, 5)).toBeNull();
     expect(parseSetup(1, "3")).toBeNull();
+  });
+
+  it("reads a swing, and treats anything it does not know as nothing happening", () => {
+    const at = { tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1 };
+    expect(parsePlayerState({ ...at, swing: "attack" }, "me")?.swing).toBe("attack");
+    expect(parsePlayerState({ ...at, swing: "special" }, "me")?.swing).toBe("special");
+    expect(parsePlayerState({ ...at, swing: "eat" }, "me")?.swing).toBe("none");
+    expect(parsePlayerState(at, "me")?.swing).toBe("none");
   });
 
   it("keeps only the prayers the fight knows", () => {

@@ -94,9 +94,22 @@ export class RemotePlayer extends Player {
     // stop keeping up for reasons that happened on nobody's screen.
     this.currentStats.prayer = this.stats.prayer;
     this.currentStats.run = MAX_RUN_ENERGY;
+    if (state.swing !== "none") this.swing(state.swing === "special");
     const queued = queueTile(this.route, this.location, state.tile);
     this.route = queued.route;
     if (queued.place) this.place(state.tile);
+  }
+
+  /**
+   * Their swing, played here. The animation is the engine's own choice for what this figure is holding, which is
+   * what they are holding, because the kit crossed the wire with them; a special is named by the weapon itself.
+   * Turning to the boss is part of it: in game you see who someone is on before you see them hit it.
+   */
+  private swing(special: boolean): void {
+    const boss = this.region.primaryBoss;
+    if (boss !== null) this.setAggro(boss);
+    const chosen = special ? this.equipment.weapon?.specialAttackAnimationId ?? null : null;
+    this.playAttackAnimation(chosen ?? this.attackAnimationId ?? undefined);
   }
 
   /** Puts the figure down where the room says it is, for when walking there is no longer honest. */

@@ -6,7 +6,7 @@
  * which is what stops two machines disagreeing about who is still alive.
  */
 import type { RoomClient } from "./client";
-import type { Authority, Member, PlayerId, Style, Worn } from "./protocol";
+import type { Authority, Member, PlayerId, Style, Swing, Worn } from "./protocol";
 import { RemoteCrowd } from "./RemotePlayer";
 import type { Dresser, Known } from "./RemotePlayer";
 import type { RemotePlayer } from "./RemotePlayer";
@@ -17,6 +17,7 @@ export type LocalView = Readonly<{
   maxHp: number;
   prayer: Style | null;
   worn: Worn | null;
+  swing: Swing;
 }>;
 
 /** What the session needs of the running fight, kept narrow so it can be driven by a fake in a test. */
@@ -186,7 +187,7 @@ export class MultiplayerSession {
   }
 
   private report(at: number, local: LocalView): void {
-    this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead, worn: local.worn });
+    this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead, worn: local.worn, swing: local.swing });
   }
 
   /** Called by the page when the local fight killed this player, and by the host's verdict for a guest. */
@@ -197,7 +198,7 @@ export class MultiplayerSession {
     // Death ends the run, and an ended run stops ticking, so the tick that would have carried the news never comes.
     // Said here instead, or the others keep a figure of this player standing in their fight for the rest of it.
     const local = this.ports.local();
-    if (local !== null) this.report(this.ports.tickNow(), local);
+    if (local !== null) this.report(this.ports.tickNow(), { ...local, swing: "none" });
     this.follow();
     this.changed();
   }

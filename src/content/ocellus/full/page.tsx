@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Player } from "osrs-sdk";
 import { CoopPanel, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby";
 import { RemotePlayer } from "../../../multiplayer/RemotePlayer";
 import { useCoop } from "../../../multiplayer/useCoop";
 import type { FightBridge } from "../../../multiplayer/useCoop";
-import type { Worn } from "../../../multiplayer/protocol";
+import type { Swing, Worn } from "../../../multiplayer/protocol";
 import { CacheRender, TrainerInstance, Viewport, dressPlayer, parseLoadout } from "osrs-sdk";
 import type { EquipmentSlot, Location3, Region, TrainerLoadingState } from "osrs-sdk";
 import { GameOverlay, RuneScapeButton, TrainerApp } from "osrs-sdk-react";
@@ -58,8 +58,10 @@ declare global {
       place(at: ATile): void;
       /** Where this frame draws him and the player, for a capture that times their movement frame by frame. */
       drawn(): Drawn;
-      /** Everyone else in a shared fight, as this client has them: their place, health and what they are wearing. */
-      others(): readonly Readonly<{ id: string; name: string; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; weapon: string | null; worn: number }>[];
+      /** Everyone else in a shared fight, as this client has them: their place, health, kit and overhead. */
+      others(): readonly Readonly<{ id: string; name: string; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; weapon: string | null; worn: number; overhead: string | null }>[];
+      /** Drives the world by hand, for a window that is not on screen and so is given no animation frames. */
+      pump(ticks: number): number;
     }>;
   }
 }
@@ -908,6 +910,11 @@ export function FullFightPage() {
   const download = useFirstDownload(params.startPhase, !ready);
   const ended = stage !== null && endingOf(stage) !== null;
 
+  // Whether this player swung on the tick being reported. The engine leaves no flag for it, but it does leave the
+  // marks: an attack refills the attack delay that every other tick counts down, and a special spends energy that
+  // only ever climbs back on its own. Read once a tick and remembered, since the report is asked for more than once.
+  const swung = useRef({ tick: -1, delay: 0, special: 0, swing: "none" as Swing });
+
   // What a shared fight needs of this page: a tick to ride, the local player to report, and the aim to redirect.
   const bridge: FightBridge = useMemo(
     () => ({
@@ -940,6 +947,18 @@ export function FullFightPage() {
       },
       // What is actually on this player's back, which is not what they picked in the lobby once they swap mid-fight.
       worn: () => wornOf(mine(region)),
+      swing: () => {
+        const you = mine(region);
+        if (you === null) return "none";
+        const at = region.world?.globalTickCounter ?? 0;
+        const seen = swung.current;
+        if (seen.tick === at) return seen.swing;
+        const delay = you.attackDelay;
+        const special = you.currentStats.specialAttack;
+        const swing: Swing = delay <= seen.delay || seen.tick < 0 ? "none" : special < seen.special ? "special" : "attack";
+        swung.current = { tick: at, delay, special, swing };
+        return swing;
+      },
       // A friend's kit crosses as item ids, and is built here from this client's own catalog. The tier they named
       // in the lobby dresses them until their first report lands, so nobody stands there naked while it does.
       dress: (puppet, gear, worn) => {
