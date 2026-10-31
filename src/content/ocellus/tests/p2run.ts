@@ -16,7 +16,7 @@ export function startP2(options: P2RunOptions = {}) {
     party: 1,
     startPhase: 2,
     hazardTiles: options.hazardTiles ?? true,
-    videoMarkers: false,
+    videoMarkers: false, prayerGuide: false, mechanicsGuide: false,
     skipMarkers: options.skipMarkers ?? false,
     patternMarkers: options.patternMarkers ?? false,
     soloVine: true,

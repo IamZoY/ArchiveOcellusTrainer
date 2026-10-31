@@ -12,7 +12,7 @@ describe("a melee player targeting the levitating boss", () => {
       party: 1,
       startPhase: 3,
       hazardTiles: true,
-      videoMarkers: false,
+      videoMarkers: false, prayerGuide: false, mechanicsGuide: false,
       skipMarkers: false,
       patternMarkers: false,
       soloVine: true,

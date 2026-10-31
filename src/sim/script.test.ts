@@ -74,6 +74,42 @@ describe("a closure-written phase", () => {
     expect(fired).toEqual(["blow under way", "always"]);
   });
 
+  test("a foretold hit logs its prayer cue on its tell tick and lands, prayable, on the tick the cue names", () => {
+    const tell = { style: "magic", attack: "jab", tell: "a blue fist", caution: null, on: { kind: "boss" } } as const;
+    const { step } = run({ begin: (m) => m.foretell(wait(2), "segment", { cause: { kind: "jab" }, ...tell }, (_, strike) => strike(hits(9, 9))) });
+    const told = step(0);
+    step(1);
+    const fired = step(2);
+    expect(told.row.events).toEqual([{ kind: "prayer-told", at: 0, cue: { ...tell, id: 0, told: 0, lands: 2 } }]);
+    expect(fired.requested).toEqual([{ cause: { kind: "jab" }, damage: { kind: "by-prayer", style: "magic", protectedAmount: 0, unprotectedAmount: 9 } }]);
+  });
+
+  test("a foretold hit whose landing decides against it deals nothing, and one whose segment ends or that is cancelled is dropped", () => {
+    const tell = { style: "melee", attack: "kick", tell: "a raised knee", caution: null, on: { kind: "target" } } as const;
+    const { step } = run({
+      begin: (m) => {
+        m.foretell(wait(1), "segment", { cause: { kind: "kick" }, ...tell }, () => undefined);
+        m.foretell(wait(3), "segment", { cause: { kind: "kick" }, ...tell }, (_, strike) => strike(hits(5, 5)));
+        m.foretell(wait(3), "phase", { cause: { kind: "jab" }, ...tell }, (_, strike) => strike(hits(6, 6)));
+        const cancelled = m.foretell(wait(3), "phase", { cause: { kind: "jab" }, ...tell }, (_, strike) => strike(hits(7, 7)));
+        m.after(wait(2), (n) => {
+          n.endSegment();
+          n.cancel(cancelled);
+        });
+      },
+    });
+    step(0);
+    const missed = step(1);
+    const dropped = step(2);
+    const landed = step(3);
+    expect(missed.requested).toEqual([]);
+    expect(dropped.row.events).toEqual([
+      { kind: "prayer-dropped", at: 2, id: 1 },
+      { kind: "prayer-dropped", at: 2, id: 3 },
+    ]);
+    expect(landed.requested.map(({ damage }) => damage)).toEqual([{ kind: "by-prayer", style: "melee", protectedAmount: 0, unprotectedAmount: 6 }]);
+  });
+
   test("a roll is keyed on its stream and tick, so another stream's draw does not shift it", () => {
     const alone: number[] = [];
     const crowded: number[] = [];

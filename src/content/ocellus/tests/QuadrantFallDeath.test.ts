@@ -28,7 +28,7 @@ describe("a falling quadrant", () => {
       party: 1,
       startPhase: 3,
       hazardTiles: false,
-      videoMarkers: false,
+      videoMarkers: false, prayerGuide: false, mechanicsGuide: false,
       skipMarkers: false,
       patternMarkers: false,
       soloVine: true,

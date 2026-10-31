@@ -319,6 +319,112 @@ export class LabelledTiles extends FloorEntity {
   }
 }
 
+/** A short text drawn over a point of the arena grid; a tile's centre is its whole coordinates. */
+export type SceneLabel = Readonly<{ x: number; z: number; text: string; colour: number }>;
+
+const LABEL = { width: 128, height: 64, font: "bold 44px sans-serif", scale: 1.6, lift: 0.6, pool: 64 } as const;
+
+function cssColour(colour: number): string {
+  return `#${colour.toString(16).padStart(6, "0")}`;
+}
+
+class SceneLabelsModel implements Model {
+  private readonly sprites: THREE.Sprite[] = [];
+  private readonly textures = new Map<string, THREE.CanvasTexture>();
+
+  constructor(private readonly labels: () => readonly SceneLabel[]) {}
+
+  draw(scene: THREE.Scene, clockDelta: number, tickPercent: number, location: Location3, angleRadians: number, pitchRadians: number, visible: boolean): void {
+    const labels = this.labels();
+    for (let i = 0; i < Math.min(labels.length, LABEL.pool); i++) {
+      const { x, z, text, colour } = labels[i];
+      const sprite = this.sprite(i, scene);
+      const map = this.texture(text, colour);
+      if (sprite.material.map !== map) {
+        sprite.material.map = map;
+        sprite.material.needsUpdate = true;
+      }
+      sprite.position.set(x + C_OFFSET + 0.5, GROUND_OVERLAY_Y + LABEL.lift, C_OFFSET - z - 0.5);
+      sprite.visible = visible;
+    }
+    for (let i = labels.length; i < this.sprites.length; i++) this.sprites[i].visible = false;
+  }
+
+  destroy(scene: THREE.Scene): void {
+    for (const sprite of this.sprites) {
+      scene.remove(sprite);
+      sprite.material.dispose();
+    }
+    this.textures.forEach((texture) => texture.dispose());
+    this.textures.clear();
+  }
+
+  getWorldPosition(): THREE.Vector3 {
+    return new THREE.Vector3();
+  }
+
+  async preload(): Promise<void> {}
+
+  private sprite(index: number, scene: THREE.Scene): THREE.Sprite {
+    const held = this.sprites[index];
+    if (held) return held;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false, depthWrite: false }));
+    sprite.scale.set(LABEL.scale, LABEL.scale / 2, 1);
+    sprite.renderOrder = 10;
+    scene.add(sprite);
+    this.sprites.push(sprite);
+    return sprite;
+  }
+
+  private texture(text: string, colour: number): THREE.CanvasTexture {
+    const key = `${text}|${colour}`;
+    const held = this.textures.get(key);
+    if (held) return held;
+    const canvas = document.createElement("canvas");
+    canvas.width = LABEL.width;
+    canvas.height = LABEL.height;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.font = LABEL.font;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.lineWidth = 6;
+      context.strokeStyle = "#000000";
+      context.strokeText(text, LABEL.width / 2, LABEL.height / 2);
+      context.fillStyle = cssColour(colour);
+      context.fillText(text, LABEL.width / 2, LABEL.height / 2);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    this.textures.set(key, texture);
+    return texture;
+  }
+}
+
+/** Arena x 0 is SDK x C; `toSdk` holds the same offset. */
+const C_OFFSET = toSdk({ x: 0, z: 0 }).x;
+
+/** Countdowns and other short texts over the floor, rebuilt every frame from a provider. */
+export class SceneLabels extends FloorEntity {
+  constructor(region: Region, private readonly labels: () => readonly SceneLabel[]) {
+    super(region, { x: 0, y: 0 });
+  }
+
+  override draw(tickPercent: number, context: OffscreenCanvasRenderingContext2D): void {
+    const scale = Settings.tileSize;
+    context.font = `bold ${Math.round(scale * 0.6)}px sans-serif`;
+    context.textAlign = "center";
+    for (const { x, z, text, colour } of this.labels()) {
+      context.fillStyle = cssColour(colour);
+      context.fillText(text, (x + C_OFFSET + 0.5) * scale, (C_OFFSET - z + 0.5) * scale);
+    }
+  }
+
+  protected override create3dModel(): Model {
+    return new SceneLabelsModel(this.labels);
+  }
+}
+
 const VOID_LOOK = { void: "#1e2529", stars: "#babcc2", rim: "#9f48bd" } as const;
 const STAR_TILES = 4;
 const STAR_PX = 32;

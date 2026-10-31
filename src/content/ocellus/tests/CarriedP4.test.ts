@@ -30,7 +30,7 @@ function carriedP4(standing: Quadrant, voids: Fall["voids"] = [], defence = 250)
   const watch: P4Watch = { invincible: true, mounted: null };
   const region = new EncounterRegion({
     room: { size: frame.size, drawFloor() {}, mount: (on) => ({ dispose() {}, walkable: (tiles) => void fence(on, tiles) }), spawn: toRoom(frame, OCELLUS_P4.geometry.playerSpawn.value) },
-    phases: { p4: p4Phase<Readonly<{ p4: P4Entry }>>(watch) },
+    phases: { p4: p4Phase<Readonly<{ p4: P4Entry }>>(watch, () => undefined) },
     start: { phase: "p4", entry },
     seed: seed(1),
   });

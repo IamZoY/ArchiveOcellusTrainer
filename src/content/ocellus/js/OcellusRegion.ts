@@ -30,7 +30,7 @@ export class OcellusRegion extends EncounterRegion<DrillEntries, DrillPhases> {
 
   constructor(private readonly config: DrillConfig) {
     const watch: P4Watch = { invincible: false, mounted: null };
-    super({ room: PLATFORM_ROOM, phases: { p4: p4Phase<DrillEntries>(watch) }, start: { phase: "p4", entry: { kind: "drill", config, loadout: drillLoadout(config) } }, seed: config.seed });
+    super({ room: PLATFORM_ROOM, phases: { p4: p4Phase<DrillEntries>(watch, () => undefined) }, start: { phase: "p4", entry: { kind: "drill", config, loadout: drillLoadout(config) } }, seed: config.seed });
     this.watch = watch;
   }
 

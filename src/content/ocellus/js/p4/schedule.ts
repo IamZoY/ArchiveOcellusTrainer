@@ -1,9 +1,11 @@
 import type { ResolvedChoices, SpecialSelection, TransitionRecipe, VoidRecipe } from "../OcellusTimings";
 import { OCELLUS_P4 } from "../OcellusTimings";
-import type { Cycle, Seed, Tick } from "../../../../sim/brands";
+import type { Cycle, Seed, Tick, TickSpan } from "../../../../sim/brands";
 import { cycle, tick } from "../../../../sim/brands";
 import type { BeatAt, Script, Slot } from "../../../../sim/schedule";
 import { Schedule, slotTable } from "../../../../sim/schedule";
+import type { Sourced } from "../../../../sim/sourced";
+import { minus } from "../../../../sim/sourced";
 import type { Beat, BossOverhead, Mechanic, Phase, Special, TransitionKind, VoidKind } from "../P4Types";
 import { ordinal } from "../P4Types";
 import { floorRule } from "./floor";
@@ -12,6 +14,13 @@ import { roll } from "../roll";
 export type P4Schedule = Schedule<"lead-in" | "cycle", Phase, Beat, Mechanic>;
 
 const VARIANTS: readonly Special[] = ["vortex", "spike-disk", "black-disk"];
+
+/** Ticks from a transition attack's tell to its hit. The schedule puts the hit here, and the prayer guide counts it down. */
+export function specialLead(kind: TransitionKind): Sourced<TickSpan> {
+  const [, afterInner, , afterOuter] = OCELLUS_P4.cycle;
+  const recipe = kind === "after-inner" ? afterInner : afterOuter;
+  return minus(recipe.hitAfterStart, recipe.tellAfterStart);
+}
 
 function specialFor(selection: SpecialSelection, nth: number, seed: Seed, hitAt: Tick): Special {
   const uniform = (): Special => VARIANTS[Math.floor(roll(seed, "specialVariant", hitAt, 0) * VARIANTS.length)];
@@ -131,7 +140,7 @@ export function compileSchedule(seed: Seed, choices: ResolvedChoices): P4Schedul
     const nth = (c: Cycle) => ordinal(2 * (c - 1) + (kind === "after-inner" ? 0 : 1));
     const variant = (c: Cycle, cycleStart: Tick) => specialFor(selection, nth(c), seed, tick(cycleStart + start + hitAfterStart.value));
     put(start + tellAfterStart.value, `${kind} transition tell`, (c, s) => ({ kind: "special-tell", ordinal: nth(c), variant: variant(c, s) }));
-    put(start + hitAfterStart.value, `${kind} transition hit`, (c, s) => ({ kind: "special-hit", ordinal: nth(c), variant: variant(c, s) }));
+    put(start + tellAfterStart.value + specialLead(kind).value, `${kind} transition hit`, (c, s) => ({ kind: "special-hit", ordinal: nth(c), variant: variant(c, s) }));
     put(start + hitAfterStart.value + bossHeals.soulSplitAfterHit.value, `${kind} Soul Split heal`, (c) => ({ kind: "soul-split-heal", ordinal: nth(c) }));
     for (const told of VARIANTS) {
       for (const { value: cue } of special.cues[special.styles[told].value]) {

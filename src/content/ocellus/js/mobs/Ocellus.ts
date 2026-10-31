@@ -35,6 +35,7 @@ import type {
 import { riftId } from "../P4Types";
 import { drawHealSplats, drawOverheadIcon } from "../entities/P4Views";
 import type { P4Schedule } from "../p4/schedule";
+import type { Moment } from "../../../../sim/schedule";
 import { TileSet } from "../../../../sim/tiles";
 import type { ExplosionStep, Marks, Reduction } from "../p4/explosions";
 import { damageReduction, explode, explosionHit, NO_MARKS } from "../p4/explosions";
@@ -257,6 +258,11 @@ export class Ocellus extends Mob {
         return unhandled;
       }
     }
+  }
+
+  /** The schedule's next `ticks` moments after `from`, as it will run them: what the mechanics guide counts down to. */
+  upcoming(from: Tick, ticks: number): readonly Moment<Phase, Beat>[] {
+    return Array.from({ length: ticks }, (_, i) => this.schedule.at(tick(from + i + 1)));
   }
 
   private phase(): Phase {

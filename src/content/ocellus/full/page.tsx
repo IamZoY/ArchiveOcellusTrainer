@@ -37,6 +37,8 @@ import type { P3Mount } from "./p3/sdk/phase";
 import type { FullFightOptions } from "./region";
 import { FightRegion, START_NPC, fullFightStaged } from "./region";
 import { exposeP4Probe } from "./p4Probe";
+import { PRAYER_NAME, STYLE_COLOUR } from "./prayerGuide";
+import { TONE_COLOUR } from "./mechanicsGuide";
 
 declare global {
   interface Window {
@@ -84,6 +86,8 @@ function readParams(): Params {
     startPhase,
     hazardTiles: flag("tiles", true),
     videoMarkers: flag("markers", false),
+    prayerGuide: flag("prayer", false),
+    mechanicsGuide: flag("tells", false),
     skipMarkers: flag("skip", false),
     patternMarkers: flag("pattern", false),
     soloVine: flag("vine", true),
@@ -111,6 +115,8 @@ function writeParams(params: Params, fresh = true): void {
   url.searchParams.set("drained", params.defenceDrained ? "1" : "0");
   url.searchParams.set("tiles", params.hazardTiles ? "1" : "0");
   url.searchParams.set("markers", params.videoMarkers ? "1" : "0");
+  url.searchParams.set("prayer", params.prayerGuide ? "1" : "0");
+  url.searchParams.set("tells", params.mechanicsGuide ? "1" : "0");
   url.searchParams.set("skip", params.skipMarkers ? "1" : "0");
   url.searchParams.set("pattern", params.patternMarkers ? "1" : "0");
   url.searchParams.set("vine", params.soloVine ? "1" : "0");
@@ -368,6 +374,69 @@ function Chatbox({ stage, region }: Readonly<{ stage: Stage | null; region: Figh
   );
 }
 
+function hex(colour: number): string {
+  return `#${colour.toString(16).padStart(6, "0")}`;
+}
+
+function ticksText(ticks: number): string {
+  return ticks === 1 ? "1 tick" : `${ticks} ticks`;
+}
+
+/** The prayer guide's card: the prayer the soonest attack needs and when it lands, the tell that shows it, and the one after. */
+function PrayerCard({ region }: Readonly<{ region: FightRegion }>) {
+  useRegionTicks(region);
+  const card = region.prayerCard();
+  if (card === null) return null;
+  if (card.kind === "idle") {
+    return (
+      <div id="prayer_guide_card" className="prayer-guide prayer-guide-idle">
+        <div className="prayer-guide-why">{card.note}</div>
+      </div>
+    );
+  }
+  const { cue, inTicks } = card.now;
+  const icon = region.prayerIcon(cue.style);
+  const next = card.next;
+  return (
+    <div id="prayer_guide_card" className="prayer-guide" data-style={cue.style} style={{ borderColor: hex(STYLE_COLOUR[cue.style]) }}>
+      <div className="prayer-guide-head">
+        {icon !== null && <img className="prayer-guide-icon" src={icon} alt="" />}
+        <div>
+          <div className="prayer-guide-prayer" style={{ color: hex(STYLE_COLOUR[cue.style]) }}>{PRAYER_NAME[cue.style].replace(/^Protect from /, "Protect ").toUpperCase()}</div>
+          <div className="prayer-guide-when">{`lands in ${ticksText(inTicks)}`}</div>
+        </div>
+      </div>
+      <div className="prayer-guide-why">{`Why: ${cue.tell}`}</div>
+      {cue.caution !== null && <div className="prayer-guide-caution">{cue.caution}</div>}
+      {next !== null && <div className="prayer-guide-next">{`Next: ${next.cue.style} in ${ticksText(next.inTicks)}, ${next.cue.attack}`}</div>}
+    </div>
+  );
+}
+
+/** How many of the coming mechanics the card lists. */
+const MECHANICS_SHOWN = 6;
+
+/** The mechanics guide's card: the next few mechanics, each with its countdown and what to do. */
+function MechanicsCard({ region }: Readonly<{ region: FightRegion }>) {
+  useRegionTicks(region);
+  const lines = region.mechanicsCard();
+  if (lines === null) return null;
+  return (
+    <div id="mechanics_guide_card" className="mechanics-guide">
+      {lines.length === 0 && <div className="mechanics-guide-todo">Nothing telegraphed is on its way.</div>}
+      <ol>
+        {lines.slice(0, MECHANICS_SHOWN).map((line) => (
+          <li key={line.id}>
+            <span className="mechanics-guide-when" style={{ color: hex(TONE_COLOUR[line.tone]) }}>{`${line.inTicks}t`}</span>
+            <span className="mechanics-guide-what">{line.count > 1 ? `${line.what} ×${line.count}` : line.what}</span>
+            {line.todo !== "" && <div className="mechanics-guide-todo">{line.todo}</div>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 type Ending = Readonly<{ won: boolean; ticks: number; phase: string }>;
 
 function endingOf(stage: Stage): Ending | null {
@@ -406,7 +475,7 @@ function Result({ stage, region, params, clock }: Readonly<{ stage: Stage; regio
   const ending = endingOf(stage);
   if (ending === null) return null;
   const now = region.currentOptions();
-  const again = (fresh: boolean) => writeParams({ ...params, hazardTiles: now.hazardTiles, invincible: now.invincible, skipMarkers: now.skipMarkers, patternMarkers: now.patternMarkers }, fresh);
+  const again = (fresh: boolean) => writeParams({ ...params, hazardTiles: now.hazardTiles, prayerGuide: now.prayerGuide, mechanicsGuide: now.mechanicsGuide, invincible: now.invincible, skipMarkers: now.skipMarkers, patternMarkers: now.patternMarkers }, fresh);
   return (
     <div className="fight-result">
       <h2>{ending.won ? "Ocellus defeated" : "Oh dear, you are dead!"}</h2>
@@ -551,6 +620,36 @@ function FullFightSidebar({ params, region, stage, clock, loadouts }: Readonly<{
                 set({ hazardTiles: on });
                 region.setHazardTiles(on);
                 rememberFlag("tiles", on);
+              }}
+            />
+          </label>
+          <label>
+            Prayer guide
+            <small>Which prayer the next attack needs, when, and the tell that shows it</small>
+            <input
+              id="prayer_guide"
+              type="checkbox"
+              checked={draft.prayerGuide}
+              onChange={(event) => {
+                const on = event.target.checked;
+                set({ prayerGuide: on });
+                region.setPrayerGuide(on);
+                rememberFlag("prayer", on);
+              }}
+            />
+          </label>
+          <label>
+            Mechanics guide
+            <small>Each attack in flight and on the floor, with its tick countdown and what to do</small>
+            <input
+              id="mechanics_guide"
+              type="checkbox"
+              checked={draft.mechanicsGuide}
+              onChange={(event) => {
+                const on = event.target.checked;
+                set({ mechanicsGuide: on });
+                region.setMechanicsGuide(on);
+                rememberFlag("tells", on);
               }}
             />
           </label>
@@ -747,6 +846,10 @@ export function FullFightPage() {
       <GameOverlay>
         <LoadingSplash state={loading} download={download} />
         {stage && stage.phase !== "p4" && <Hud stage={stage} region={region} />}
+        <div className="guide-stack">
+          <PrayerCard region={region} />
+          <MechanicsCard region={region} />
+        </div>
         <div id="hud_corner">
           <Chatbox stage={stage} region={region} />
         </div>

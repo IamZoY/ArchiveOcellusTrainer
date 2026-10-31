@@ -33,7 +33,7 @@ const CARRIED: readonly CarriedRun[] = [1, 4, 14, 75].map((runSeed): CarriedRun 
 function carriedFight(run: CarriedRun) {
   Settings.readFromStorage();
   const region = fullFightStaged(
-    { seed: run.seed, party: 1, startPhase: 4, hazardTiles: false, videoMarkers: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false },
+    { seed: run.seed, party: 1, startPhase: 4, hazardTiles: false, videoMarkers: false, prayerGuide: false, mechanicsGuide: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false },
     (player) => dressFullFight(player, "twistedBow"),
   );
   const trainer = new TrainerInstance(region);

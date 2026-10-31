@@ -11,7 +11,7 @@ import type { FullFightOptions } from "../full/prefix";
 import { FightRegion } from "../full/prefix";
 import type { P3Cause, P3Look, P3Row, P3Types } from "../full/p3/types";
 
-export type P3RunOptions = Readonly<{ seed?: number; practice?: boolean; soloVine?: boolean; weapon?: StartWeapon | null; startPhase?: StartPhase; defenceDrained?: boolean }>;
+export type P3RunOptions = Readonly<{ seed?: number; practice?: boolean; soloVine?: boolean; weapon?: StartWeapon | null; startPhase?: StartPhase; defenceDrained?: boolean; prayerGuide?: boolean; mechanicsGuide?: boolean }>;
 
 /** The full fight's own region, ticked by hand. It starts at phase 3 unless `startPhase` says otherwise. */
 export function startP3(options: P3RunOptions = {}) {
@@ -22,6 +22,8 @@ export function startP3(options: P3RunOptions = {}) {
     startPhase: options.startPhase ?? 3,
     hazardTiles: true,
     videoMarkers: false,
+    prayerGuide: options.prayerGuide ?? false,
+    mechanicsGuide: options.mechanicsGuide ?? false,
     skipMarkers: false,
     patternMarkers: false,
     soloVine: options.soloVine ?? true,

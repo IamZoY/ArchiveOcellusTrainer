@@ -1,8 +1,10 @@
 import type { Seed, Tick, TickSpan, WorldTick } from "./brands";
 import type { Damage, HitReceipt, Style } from "./combat";
 import type { Entries, Enter } from "./encounter";
+import type { CueChange, Foretold, PrayerCue } from "./prayerCue";
+import type { Threat, ThreatChange, Warning } from "./threat";
 import type { DamageRange, Sourced } from "./sourced";
-import type { Handle } from "./timers";
+import type { Handle, Scope } from "./timers";
 import { Timers } from "./timers";
 
 /** What one closure-written phase names: its own tiles, hit causes, events, looks, roll streams and overheads. */
@@ -38,7 +40,11 @@ export type EngineEvent<T extends ScriptTypes> =
   | Readonly<{ kind: "hit-landed"; at: Tick; cause: T["cause"]; receipt: HitReceipt }>
   | Readonly<{ kind: "healed"; at: Tick; cause: T["cause"]; target: "player" | "boss"; amount: number }>
   | Readonly<{ kind: "boss-changed"; at: Tick; change: BossChange<T> }>
-  | Readonly<{ kind: "shown"; at: Tick; look: T["look"] }>;
+  | Readonly<{ kind: "shown"; at: Tick; look: T["look"] }>
+  | Readonly<{ kind: "prayer-told"; at: Tick; cue: PrayerCue }>
+  | Readonly<{ kind: "prayer-dropped"; at: Tick; id: number }>
+  | Readonly<{ kind: "threat-told"; at: Tick; threat: Threat<T["tile"]> }>
+  | Readonly<{ kind: "threat-dropped"; at: Tick; id: string }>;
 
 export type ScriptEvent<T extends ScriptTypes> = T["event"] | EngineEvent<T>;
 
@@ -74,6 +80,43 @@ export interface BossControl<T extends ScriptTypes> {
 }
 
 export type Step<E extends Entries, T extends ScriptTypes> = (m: Ctx<E, T>) => void;
+/** A foretold attack's landing tick. `strike` deals it as a prayable hit of the foretold style and cause. */
+export type Landing<E extends Entries, T extends ScriptTypes> = (m: Ctx<E, T>, strike: (damage: Sourced<DamageRange>) => void) => void;
+
+/** The guide's view of a row: every cue told or dropped on it, in order. */
+export function cueChanges<T extends ScriptTypes>(events: readonly ScriptEvent<T>[]): readonly CueChange[] {
+  const changes: CueChange[] = [];
+  for (const event of events) {
+    if (!isCueEvent(event)) continue;
+    if (event.kind === "prayer-told") changes.push({ kind: "told", cue: event.cue });
+    else changes.push({ kind: "dropped", id: event.id });
+  }
+  return changes;
+}
+
+/** The mechanics guide's view of a row: every warning told or dropped on it, in order. */
+export function threatChanges<T extends ScriptTypes>(events: readonly ScriptEvent<T>[]): readonly ThreatChange<T["tile"]>[] {
+  const changes: ThreatChange<T["tile"]>[] = [];
+  for (const event of events) {
+    if (!isThreatEvent(event)) continue;
+    if (event.kind === "threat-told") changes.push({ kind: "told", threat: event.threat });
+    else changes.push({ kind: "dropped", id: event.id });
+  }
+  return changes;
+}
+
+type ThreatEvent<T extends ScriptTypes> = Extract<EngineEvent<T>, Readonly<{ kind: "threat-told" | "threat-dropped" }>>;
+
+function isThreatEvent<T extends ScriptTypes>(event: ScriptEvent<T>): event is ThreatEvent<T> {
+  return (event.kind === "threat-told" && "threat" in event) || (event.kind === "threat-dropped" && "id" in event);
+}
+
+type CueEvent<T extends ScriptTypes> = Extract<EngineEvent<T>, Readonly<{ kind: "prayer-told" | "prayer-dropped" }>>;
+
+/** A phase's own event kinds are its to name, so the engine's cue kinds are told apart by kind and shape together. */
+function isCueEvent<T extends ScriptTypes>(event: ScriptEvent<T>): event is CueEvent<T> {
+  return (event.kind === "prayer-told" && "cue" in event) || (event.kind === "prayer-dropped" && "id" in event);
+}
 
 /** Everything a mechanic can do. It gets no SDK object, so every effect passes through here and lands in the row. */
 export interface Ctx<E extends Entries, T extends ScriptTypes> {
@@ -92,6 +135,17 @@ export interface Ctx<E extends Entries, T extends ScriptTypes> {
   hit(cause: T["cause"], damage: Sourced<DamageRange>): void;
   /** Nothing under the matching protection prayer, read as the hit lands. */
   hitPrayable(cause: T["cause"], style: Style, damage: Sourced<DamageRange>): void;
+  /**
+   * A prayable attack told now, at its tell, that lands `wait` ticks on: its prayer cue is logged at once, and on the
+   * landing tick `lands` runs and deals the hit through `strike`, or lets it miss. The cue and the hit share this one wait.
+   * A cue whose timer dies before it lands, with its segment or by `cancel`, is logged as dropped.
+   */
+  foretell(wait: Sourced<TickSpan>, scope: Scope, attack: Foretold & Readonly<{ cause: T["cause"] }>, lands: Landing<E, T>): Handle;
+  /**
+   * A telegraphed mechanic told now that lands `wait` ticks on: its warning is logged at once and `step` runs on the landing
+   * tick. Like `foretell`, a warning whose timer dies first is logged as dropped.
+   */
+  warn(wait: Sourced<TickSpan>, scope: Scope, warning: Warning<T["tile"]>, step: Step<E, T>): Handle;
   /** One range under the matching protection prayer and another without it, read as the hit lands. */
   hitByPrayer(cause: T["cause"], style: Style, prayed: Sourced<DamageRange>, unprayed: Sourced<DamageRange>): void;
   heal(cause: T["cause"], amount: number, target: "player" | "boss"): void;
@@ -137,6 +191,7 @@ export type RunPorts<E extends Entries, T extends ScriptTypes> = Readonly<{
   next(to: Enter<E>): void;
 }>;
 
+type Told = Readonly<{ kind: "prayer"; id: number }> | Readonly<{ kind: "threat"; id: string }>;
 type Open<T extends ScriptTypes> = Readonly<{ at: Tick; world: WorldTick; player: Observed<T>; bossHp: number }>;
 type Requested<T extends ScriptTypes> = Readonly<{ cause: T["cause"]; damage: Damage }>;
 
@@ -166,6 +221,8 @@ export class ScriptRun<E extends Entries, T extends ScriptTypes> implements Ctx<
   private clock: Tick;
   private events: ScriptEvent<T>[] = [];
   private queued: Requested<T>[] = [];
+  /** Cues and warnings told whose timer has not come due, by that timer. */
+  private readonly foretold = new Map<Handle, Told>();
 
   constructor(private readonly script: Script<E, T>, private readonly ports: RunPorts<E, T>, start: Tick) {
     this.clock = start;
@@ -240,15 +297,41 @@ export class ScriptRun<E extends Entries, T extends ScriptTypes> implements Ctx<
 
   cancel(handle: Handle): void {
     this.timers.cancel(handle);
+    this.drop((pending) => pending === handle);
   }
 
   endSegment(): void {
     this.timers.leaveSegment();
+    this.drop((pending) => pending.scope === "segment");
   }
 
   /** The phase is leaving: nothing it set runs again. */
   leave(): void {
     this.timers.leavePhase();
+    this.foretold.clear();
+  }
+
+  foretell(wait: Sourced<TickSpan>, scope: Scope, attack: Foretold & Readonly<{ cause: T["cause"] }>, lands: Landing<E, T>): Handle {
+    const { cause, ...told } = attack;
+    const handle = this.timers.add(this.clock, wait.value, scope, (m) => {
+      this.foretold.delete(handle);
+      lands(m, (damage) => m.hitPrayable(cause, told.style, damage));
+    });
+    const cue: PrayerCue = { ...told, id: handle.order, told: this.clock, lands: handle.due };
+    this.foretold.set(handle, { kind: "prayer", id: cue.id });
+    this.events.push({ kind: "prayer-told", at: this.clock, cue });
+    return handle;
+  }
+
+  warn(wait: Sourced<TickSpan>, scope: Scope, warning: Warning<T["tile"]>, step: Step<E, T>): Handle {
+    const handle = this.timers.add(this.clock, wait.value, scope, (m) => {
+      this.foretold.delete(handle);
+      step(m);
+    });
+    const threat: Threat<T["tile"]> = { ...warning, id: `w${handle.order}`, told: this.clock, lands: handle.due };
+    this.foretold.set(handle, { kind: "threat", id: threat.id });
+    this.events.push({ kind: "threat-told", at: this.clock, threat });
+    return handle;
   }
 
   hit(cause: T["cause"], damage: Sourced<DamageRange>): void {
@@ -297,6 +380,25 @@ export class ScriptRun<E extends Entries, T extends ScriptTypes> implements Ctx<
   private request(cause: T["cause"], damage: Damage): void {
     this.events.push({ kind: "hit-requested", at: this.clock, cause, damage });
     this.queued.push({ cause, damage });
+  }
+
+  private drop(dies: (pending: Handle) => boolean): void {
+    for (const [handle, told] of this.foretold) {
+      if (!dies(handle)) continue;
+      this.foretold.delete(handle);
+      switch (told.kind) {
+        case "prayer":
+          this.events.push({ kind: "prayer-dropped", at: this.clock, id: told.id });
+          break;
+        case "threat":
+          this.events.push({ kind: "threat-dropped", at: this.clock, id: told.id });
+          break;
+        default: {
+          const unhandled: never = told;
+          return unhandled;
+        }
+      }
+    }
   }
 
   private draw(stream: string): number {

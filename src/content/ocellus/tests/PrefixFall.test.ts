@@ -15,7 +15,7 @@ afterEach(() => {
 
 function fullFight(startPhase: StartPhase, setup: "melee" | null = null, defenceDrained = false) {
   Settings.readFromStorage();
-  const options: FullFightOptions = { seed: 1, party: 1, startPhase, hazardTiles: false, videoMarkers: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained };
+  const options: FullFightOptions = { seed: 1, party: 1, startPhase, hazardTiles: false, videoMarkers: false, prayerGuide: false, mechanicsGuide: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained };
   const region = fullFightStaged(options, (player) => {
     if (setup) dressFullFight(player, setup);
   });
@@ -172,7 +172,8 @@ describe("the third fall enters P4 in the same world", () => {
       mounted: null,
       fallen: 3,
       mobs: ["Ocellus"],
-      counts: { ArenaFloor: 1, LocField: 1, InvisibleMovementBlocker: GRID * GRID - floorTiles, VoidField: 1, FloorHole: 3, OrbView: 2, FragmentFlash: 1, BossFootprint: 1 },
+      // The two TileMarks and the SceneLabels are the prayer and mechanics guides' marks, which the region keeps for the whole run.
+      counts: { ArenaFloor: 1, LocField: 1, InvisibleMovementBlocker: GRID * GRID - floorTiles, VoidField: 1, FloorHole: 3, OrbView: 2, FragmentFlash: 1, BossFootprint: 1, TileMarks: 2, SceneLabels: 1 },
     });
   });
 

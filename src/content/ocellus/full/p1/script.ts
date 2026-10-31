@@ -1,6 +1,7 @@
 import { tick } from "../../../../sim/brands";
 import type { Tick } from "../../../../sim/brands";
 import type { Entries, Enter } from "../../../../sim/encounter";
+import type { Foretold } from "../../../../sim/prayerCue";
 import type { Script } from "../../../../sim/script";
 import type { Sourced } from "../../../../sim/sourced";
 import { each, minus, plus } from "../../../../sim/sourced";
@@ -26,6 +27,12 @@ const FACE_OUT = at(0, 10);
 const CENTRE = at(0, 0);
 const SIDES = ["east", "south", "west", "north"] as const;
 const BODY = 3;
+
+/** The volley's style shows in its orb's colour, first on him as he throws it. */
+const VOLLEY_TELL: Readonly<Record<Element, Foretold>> = {
+  fire: { style: "ranged", attack: "fire volley", tell: "orange fire orb (ranged volley) thrown by Ocellus", caution: null, on: { kind: "boss" } },
+  water: { style: "magic", attack: "water volley", tell: "blue water orb (magic volley) thrown by Ocellus", caution: null, on: { kind: "boss" } },
+};
 
 type Line = { tiles: readonly ATile[]; growth: Readonly<{ dx: number; dz: number }>; closed: boolean };
 
@@ -246,14 +253,13 @@ export class P1Script<E extends Entries> implements Script<E, P1Types> {
   private volley(m: P1Ctx<E>, seq: Sourced<number>): void {
     if (m.chance("element", V.elementSwitchChance)) this.element = this.element === "fire" ? "water" : "fire";
     const element = this.element;
-    const style = element === "fire" ? "ranged" : "magic";
     m.boss.play(seq);
     m.boss.spotanim(element === "fire" ? SPOT.fireOnBoss : SPOT.waterOnBoss, "volley");
     const near = distanceToBody(this.body(m), m.player.tile) <= V.volleyLand.nearWithin.value;
     const delay = near ? T.volleyNear : T.volleyFar;
     m.show({ kind: "projectile", element, near, flight: delay.value });
     m.log({ kind: "volley", at: m.now, element });
-    m.after(delay, (n) => n.hitPrayable({ kind: "volley", element }, style, V.volleyDamage));
+    m.foretell(delay, "segment", { cause: { kind: "volley", element }, ...VOLLEY_TELL[element] }, (_, strike) => strike(V.volleyDamage));
   }
 
   private crossed(m: P1Ctx<E>): boolean {

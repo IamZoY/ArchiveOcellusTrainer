@@ -2,9 +2,11 @@ import type { Tick, TickSpan } from "../../../../sim/brands";
 import { after, span } from "../../../../sim/brands";
 import type { Style } from "../../../../sim/combat";
 import type { Entries } from "../../../../sim/encounter";
+import type { Foretold } from "../../../../sim/prayerCue";
+import type { Warning } from "../../../../sim/threat";
 import type { Script } from "../../../../sim/script";
 import type { Handle } from "../../../../sim/timers";
-import type { Sourced } from "../../../../sim/sourced";
+import type { DamageRange, Sourced } from "../../../../sim/sourced";
 import { each, minus, plus } from "../../../../sim/sourced";
 import type { ATile, Arm, Body, Quadrant } from "../../fight/geometry";
 import {
@@ -16,10 +18,12 @@ import {
   armsOf,
   at,
   bodyCentre,
+  bodyCentreTile,
   clockwise,
   covers,
   distanceToBody,
   inRoom,
+  lineBetween,
   quadrantOf,
   quadrantTiles,
   reach,
@@ -36,11 +40,45 @@ import type { Add, P3World } from "./world";
 type Patch = Readonly<{ tile: ATile; placed: Tick; end: PatchEnd }>;
 type Crossing = Readonly<{ from: Quadrant; to: Quadrant; bank: ATile; jumps: readonly [ATile, ...ATile[]]; started: boolean }>;
 
+const RIFT_NAME: Readonly<Record<RiftKind, string>> = { "rift-basic": "Void Rift", "rift-buff": "Void Augmenter", "rift-heal": "Void Siphon" };
 const RIFT_ORDER: readonly [RiftKind, ...RiftKind[]] = ["rift-buff", "rift-basic", "rift-heal"];
 const GOD_NAME: Readonly<Record<God, string>> = { bandos: "Bandosian", saradomin: "Saradomin", armadyl: "Armadylean", zaros: "Zarosian" };
 const GOD_GLOW: Readonly<Record<God, Sourced<number>>> = { bandos: SPOT.glowBandos, saradomin: SPOT.glowSaradomin, armadyl: SPOT.glowArmadyl, zaros: SPOT.glowZaros };
 const VINE_LINES = ["The void... will take you...", "Await... the void...", "Your panic... is futile..."] as const;
 const ESCAPE_LINES = ["You can't... escape... the end...", "This end... comes...", "Everything... ends..."] as const;
+/** What the prayer guide names for each of his prayable attacks, and what gives each away. */
+const SPIN_OPENING_TELL: Foretold = {
+  style: "melee",
+  attack: "spin opening",
+  tell: "Ocellus draws his blade in to spin (melee), hitting anyone in reach",
+  caution: null,
+  on: { kind: "boss" },
+};
+const SEVER_CAUTION = "Overheads off the tick before the cut, or he severs them; Melee on for the cut itself";
+const SAW_TELL: Foretold = { style: "melee", attack: "saw blade", tell: "saw blade spinning on Ocellus (melee cut)", caution: SEVER_CAUTION, on: { kind: "boss" } };
+const LAST_SAW_TELL: Foretold = { ...SAW_TELL, attack: "last saw blade", tell: "last saw blade on Ocellus, as the spin ends (melee cut)" };
+const PANIC_TELL: Foretold = { style: "magic", attack: "panic shot", tell: "his purple magic cast, no shout: a magic shot flying at you", caution: null, on: { kind: "target" } };
+const UNTETHER_TELL: Foretold = { style: "magic", attack: "Untether magic", tell: "purple magic shot from Ocellus during Untether, flying at you", caution: null, on: { kind: "target" } };
+
+/** "12 to 18 damage", read from his data. */
+function hurts(range: Sourced<DamageRange>): string {
+  const { min, max } = range.value;
+  return min === max ? `${min} damage` : `${min} to ${max} damage`;
+}
+
+/** What the mechanics guide says for each telegraphed mechanic the script schedules with `warn`. */
+const WARN = {
+  bombOverhead: {
+    what: "Void bomb over you",
+    todo: "It fixes on the tile you stand on then, and the same tile of every standing quadrant: stand at the edge",
+    tone: "harm",
+    where: { kind: "spot", at: { kind: "player" } },
+  },
+  vine: { what: "Void vine roots you", todo: "It holds you where you stand: be where you want to fight from, then cut it", tone: "harm", where: { kind: "spot", at: { kind: "player" } } },
+  slam: { what: `Untether slam (${hurts(V.untether.slamDamage)})`, todo: "Be under his 3x3 when it lands", tone: "harm", where: { kind: "spot", at: { kind: "boss" } } },
+  aftershock: { what: `Untether aftershock (${hurts(V.untether.aftershockDamage)})`, todo: "Step one tile out from under him", tone: "harm", where: { kind: "spot", at: { kind: "boss" } } },
+} as const satisfies Readonly<Record<string, Warning<ATile>>>;
+
 /** He starts phase 3 in the middle, facing the south entrance. */
 const MIDDLE_FACING = at(0, 10);
 const ARENA_CENTRE = at(0, 0);
@@ -73,18 +111,6 @@ function quadrantsOfArm(arm: Arm): readonly [Quadrant, Quadrant] {
   return [found[0], found[1]];
 }
 
-function bodyCentreTile(body: Body): ATile {
-  const c = bodyCentre(body);
-  return at(Math.round(c.x), Math.round(c.z));
-}
-
-function lineBetween(a: ATile, b: ATile): ATile[] {
-  const tiles: ATile[] = [];
-  const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.z - a.z));
-  for (let i = 1; i < steps; i++) tiles.push(at(Math.round(a.x + ((b.x - a.x) * i) / steps), Math.round(a.z + ((b.z - a.z) * i) / steps)));
-  return tiles;
-}
-
 function outlasts(a: PatchEnd, b: PatchEnd): boolean {
   if (a.kind === "quadrant") return true;
   if (b.kind === "quadrant") return false;
@@ -115,6 +141,8 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
   private patches: readonly Patch[] = [];
   private vine: Add | null = null;
   private rifts: readonly Add[] = [];
+  /** The burst and heal timers of each live rift, called off when it dies. */
+  private warned: readonly Readonly<{ rift: Add; handle: Handle }>[] = [];
   private crossing: Crossing | null = null;
   private lastFlyingMessage = -10;
   private prayerLeft = 1;
@@ -207,8 +235,10 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     m.log({ kind: "segment-started", at: m.now, segment: this.segment, quadrant: q });
     const plan = this.segment === 0 ? T.segment.first : T.segment.later;
     for (const drop of each(plan.bombs)) {
-      m.after(minus(drop, T.bombOverheadBefore), (n) => this.bombOverhead(n));
-      m.after(minus(drop, T.bombDropAfter), (n) => this.bombs(n));
+      m.after(minus(drop, T.bombOverheadBefore), (n) => {
+        this.bombOverhead(n);
+        n.warn(minus(T.bombOverheadBefore, T.bombDropAfter), "segment", WARN.bombOverhead, (o) => this.bombs(o));
+      });
     }
     if (this.segment > 0) this.rifting(m, T.riftsAfter);
     this.riftKind = this.riftKind === null ? m.pick("rift-kind", RIFT_ORDER) : RIFT_ORDER[(RIFT_ORDER.indexOf(this.riftKind) + 1) % RIFT_ORDER.length];
@@ -361,22 +391,23 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     m.boss.play(SEQ.p3PrayerIn);
     m.boss.spotanim(SPOT.meleePrayerIn, "spin");
     m.after(this.segment === 0 ? T.debrisIntoSpin.first : T.debrisIntoSpin.later, (n) => this.debris(n));
-    m.after(T.spinOpens, (n) => {
-      if (reach(n.player.tile, n.boss.at) <= V.spinReach.value) n.hitPrayable({ kind: "spin-opening" }, "melee", V.spinOpeningDamage);
+    m.foretell(T.spinOpens, "segment", { cause: { kind: "spin-opening" }, ...SPIN_OPENING_TELL }, (n, strike) => {
+      if (reach(n.player.tile, n.boss.at) <= V.spinReach.value) strike(V.spinOpeningDamage);
     });
     const loops = this.world.destroyed.size;
     let cut: Sourced<TickSpan> = T.sawFirstCut;
     for (let i = 0; i <= loops; i++) {
       const last = i === loops;
       if (i > 0) cut = plus(cut, T.sawEvery);
-      m.after(minus(cut, T.sawShowsBefore), (n) => n.boss.spotanim(last ? SPOT.meleePrayerOut : SPOT.meleePrayer, "spin"));
-      m.after(minus(cut, T.severBefore), (n) => this.sever(n));
-      m.after(cut, (n) => {
-        n.boss.play(last ? SEQ.p3PrayerOut : SEQ.p3PrayerLoop);
-        if (last) this.stage = { kind: "chain" };
-        if (reach(n.player.tile, n.boss.at) > V.spinReach.value) return;
-        n.hitPrayable({ kind: "saw" }, "melee", V.spinDamage);
+      m.after(minus(cut, T.sawShowsBefore), (n) => {
+        n.boss.spotanim(last ? SPOT.meleePrayerOut : SPOT.meleePrayer, "spin");
+        n.foretell(T.sawShowsBefore, "segment", { cause: { kind: "saw" }, ...(last ? LAST_SAW_TELL : SAW_TELL) }, (o, strike) => {
+          o.boss.play(last ? SEQ.p3PrayerOut : SEQ.p3PrayerLoop);
+          if (last) this.stage = { kind: "chain" };
+          if (reach(o.player.tile, o.boss.at) <= V.spinReach.value) strike(V.spinDamage);
+        });
       });
+      m.after(minus(cut, T.severBefore), (n) => this.sever(n));
     }
     this.quadrantSpins++;
     const vine = V.vineAfterSpins.value.some((n) => n === this.quadrantSpins);
@@ -404,7 +435,8 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
 
   private shoot(m: P3Ctx<E>, flight: Sourced<TickSpan>, cause: "panic" | "untether-magic"): void {
     m.show({ kind: "projectile", id: SPOT.magicProjectile.value, from: "boss", to: "player", flight: flight.value });
-    m.afterPhase(flight, (n) => n.hitPrayable({ kind: cause }, "magic", cause === "panic" ? V.volleyDamage : V.untether.magicDamage));
+    const tell = cause === "panic" ? PANIC_TELL : UNTETHER_TELL;
+    m.foretell(flight, "phase", { cause: { kind: cause }, ...tell }, (_, strike) => strike(cause === "panic" ? V.volleyDamage : V.untether.magicDamage));
   }
 
   /**
@@ -462,7 +494,7 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
   /** One of his three vine shouts, and 3 ticks later a vine roots you where you stand then. */
   private spawnVine(m: P3Ctx<E>): void {
     m.boss.say(m.pick("shout", VINE_LINES), T.shoutLasts.long);
-    m.after(T.vineRootsAfter, (n) => {
+    m.warn(T.vineRootsAfter, "segment", WARN.vine, (n) => {
       if (!this.airborne()) this.rootInVine(n);
     });
   }
@@ -553,26 +585,35 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     const rift = this.world.spawn(kind, tile, (add) => this.riftKilled(m, add, kind));
     this.rifts = [...this.rifts, rift];
     m.log({ kind: "rift-spawned", at: m.now, rift: kind, tile });
-    m.afterPhase(T.riftDetonatesAfter, (n) => {
+    const burst = m.warn(T.riftDetonatesAfter, "phase", { what: `${RIFT_NAME[kind]} bursts (${hurts(V.riftDetonationDamage)})`, todo: "Kill it before it bursts: the burst hits you wherever you stand", tone: "harm", where: { kind: "spot", at: { kind: "tile", tile } } }, (n) => {
       if (!rift.alive || !this.rifts.includes(rift)) return;
       this.rifts = this.rifts.filter((r) => r !== rift);
       rift.detonate();
       n.show({ kind: "rift-detonated", tile });
       n.hit({ kind: "rift-detonation" }, V.riftDetonationDamage);
     });
+    this.warned = [...this.warned, { rift, handle: burst }];
     if (kind !== "rift-heal") return;
+    const flare: Warning<ATile> = {
+      what: "Void Siphon heals Ocellus",
+      todo: "Stand on the line between the siphon and him as it fires to block the heal, or kill the siphon",
+      tone: "heal",
+      where: { kind: "flight", from: { kind: "tile", tile }, to: { kind: "boss" }, block: true },
+    };
     const heal = (n: P3Ctx<E>) => {
       if (!rift.alive || !this.rifts.includes(rift)) return;
       const centre = bodyCentreTile(this.body(n));
       n.show({ kind: "projectile", id: SPOT.healingFlare.value, from: tile, to: "boss", flight: T.idleAfter.value });
       if (!lineBetween(tile, centre).some((t) => same(t, n.player.tile))) n.heal({ kind: "rift-heal" }, n.pick("heal-amount", V.healRiftHeal.value), "boss");
-      n.afterPhase(T.healRiftEvery, heal);
+      this.warned = [...this.warned, { rift, handle: n.warn(T.healRiftEvery, "phase", flare, heal) }];
     };
-    m.afterPhase(T.healRiftEvery, heal);
+    this.warned = [...this.warned, { rift, handle: m.warn(T.healRiftEvery, "phase", flare, heal) }];
   }
 
   private riftKilled(m: P3Ctx<E>, add: Add, kind: RiftKind): void {
     this.rifts = this.rifts.filter((r) => r !== add);
+    for (const { handle } of this.warned.filter(({ rift }) => rift === add)) m.cancel(handle);
+    this.warned = this.warned.filter(({ rift }) => rift !== add);
     m.log({ kind: "rift-killed", at: m.now, rift: kind });
     if (kind === "rift-heal") {
       m.heal({ kind: "siphon-kill" }, V.siphonHeal.value, "player");
@@ -603,13 +644,13 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     for (const lands of each(u.magic)) m.afterPhase(minus(lands, u.magicFlight), (n) => this.shoot(n, u.magicFlight, "untether-magic"));
     m.afterPhase(u.unleashVfx, (n) => n.boss.spotanim(SPOT.unleashOnBoss, "unleash"));
     m.afterPhase(u.erupt, (n) => n.show({ kind: "untether-flare", quadrant: q, tile: bodyCentreTile(zone) }));
-    m.afterPhase(u.slam, (n) => {
+    m.warn(u.slam, "phase", WARN.slam, (n) => {
       n.boss.hold(null);
       n.boss.play(SEQ.p3UnleashOut);
       n.show({ kind: "zone-cleared" });
       if (!covers(this.body(n), n.player.tile)) n.hit({ kind: "slam" }, V.untether.slamDamage);
     });
-    m.afterPhase(u.aftershock, (n) => {
+    m.warn(u.aftershock, "phase", WARN.aftershock, (n) => {
       if (covers(this.body(n), n.player.tile)) n.hit({ kind: "aftershock" }, V.untether.aftershockDamage);
     });
     m.afterPhase(u.obliteration, (n) => this.obliterateWhenDue(n, q));
@@ -683,7 +724,7 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
       n.boss.play(SEQ.p3UnleashOut90);
       n.boss.spotanim(SPOT.collapseOut1, "collapse");
     });
-    m.afterPhase(fallsIn, (n) => this.fall(n, q, tiles));
+    m.warn(fallsIn, "phase", { what: `The ${q} quadrant falls`, todo: "Cross the stones to a standing quadrant before it goes", tone: "harm", where: { kind: "tiles", tiles } }, (n) => this.fall(n, q, tiles));
     m.afterPhase(minus(u.nextSegment, u.obliteration), (n) => {
       if (this.stage.kind === "over") return;
       n.boss.show(true);
@@ -711,6 +752,8 @@ export class P3Script<E extends Entries> implements Script<E, P3Types> {
     m.show({ kind: "patches-cleared", quadrant: q });
     this.rifts.forEach((r) => r.remove());
     this.rifts = [];
+    this.warned.forEach(({ handle }) => m.cancel(handle));
+    this.warned = [];
     m.boss.hold(null);
     m.boss.show(false);
     m.boss.targetable(false);

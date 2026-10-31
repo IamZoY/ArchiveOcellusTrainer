@@ -18,7 +18,7 @@ afterEach(() => {
 function fullFight(): FightRegion {
   Settings.readFromStorage();
   const region = fullFightStaged(
-    { seed: 1, party: 1, startPhase: 3, hazardTiles: false, videoMarkers: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false },
+    { seed: 1, party: 1, startPhase: 3, hazardTiles: false, videoMarkers: false, prayerGuide: false, mechanicsGuide: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false },
     () => undefined,
   );
   const trainer = new TrainerInstance(region, { force2d: true });

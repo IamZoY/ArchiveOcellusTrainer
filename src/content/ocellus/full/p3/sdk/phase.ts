@@ -1,19 +1,24 @@
 import { Unit } from "osrs-sdk";
 import type { Player } from "osrs-sdk";
 import { tick } from "../../../../../sim/brands";
+import type { Tick } from "../../../../../sim/brands";
+import type { CueChange } from "../../../../../sim/prayerCue";
+import type { ThreatChange } from "../../../../../sim/threat";
 import type { AttackTarget, Enter, Entries, Mounted, PhaseDef } from "../../../../../sim/encounter";
 import { identity } from "../../../../../sim/frame";
 import type { BossChange } from "../../../../../sim/script";
-import { ScriptRun } from "../../../../../sim/script";
+import { ScriptRun, cueChanges, threatChanges } from "../../../../../sim/script";
 import type { EncounterBinding, Hooks } from "../../../../../sim/sdk/EncounterBinding";
 import type { PlayerInput } from "../../../../../sim/sdk/EncounterPlayer";
 import type { EncounterHost } from "../../../../../sim/sdk/EncounterRegion";
 import type { FloorState } from "../../../fight/arena";
 import { GRID, MIDDLE, fromSdk } from "../../../fight/geometry";
+import type { ATile } from "../../../fight/geometry";
 import { FightPlayer, VoidAdd } from "../../../fight/units";
 import { scaledHp } from "../../data/looks";
 import { P2 } from "../../data/p2";
 import { P3Script } from "../script";
+import { P3Dangers } from "../threats";
 import type { Fall, P3Cause, P3Entry, P3Row, P3Types } from "../types";
 import { Arena } from "./arena";
 import { P3Boss } from "./boss";
@@ -38,6 +43,10 @@ export type P3Options<E extends Entries> = Readonly<{
   fallInto: (fall: Fall) => Enter<E> | null;
   /** The chatbox outlives the phase, so its lines go to whoever keeps it. */
   say: (line: ChatLine) => void;
+  /** The prayer guide takes each closed row's cue changes, on this phase's clock. */
+  told: (now: Tick, changes: readonly CueChange[]) => void;
+  /** The mechanics guide takes each closed row's warnings, on this phase's clock. */
+  warned: (now: Tick, changes: readonly ThreatChange<ATile>[]) => void;
 }>;
 
 /** The vine roots you on its own tile, and the SDK will not let you attack what you stand under. Solo, you cut it from there. */
@@ -161,6 +170,7 @@ export function p3Phase<E extends Entries & Readonly<{ p3: P3Entry }>>(options: 
       binding = host.bind(tick(0), hooks);
       region.addMob(boss);
       region.setBoss(boss);
+      const dangers = new P3Dangers();
       const views = new P3Views(region, { boss: () => boss, player, addAt: (t) => arena.unitAt(t) }, settings.hazardTiles, options.say);
       const hideFloor = options.showFloor(() => arena.floorState());
       const bound = binding;
@@ -178,7 +188,10 @@ export function p3Phase<E extends Entries & Readonly<{ p3: P3Entry }>>(options: 
         openTick: () => bound.openTick(),
         finishTick: () => {
           const row = bound.finishTick();
-          if (row) views.present(row);
+          if (!row) return;
+          views.present(row);
+          options.told(row.tick, cueChanges(row.events));
+          options.warned(row.tick, [...threatChanges(row.events), ...dangers.read(row)]);
         },
         rows: () => bound.rows,
         leave() {

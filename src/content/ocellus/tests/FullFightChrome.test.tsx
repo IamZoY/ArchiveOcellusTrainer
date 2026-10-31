@@ -40,6 +40,16 @@ function loadFullFight(url: string) {
   };
 }
 
+/** Opens the page for `body` and closes it even when `body` throws, so a failure cannot leave a page for the next test. */
+function withFullFight<T>(url: string, body: (page: ReturnType<typeof loadFullFight>) => T): T {
+  const page = loadFullFight(url);
+  try {
+    return body(page);
+  } finally {
+    page.close();
+  }
+}
+
 function captureAssign() {
   const real = window.location;
   const assigned: string[] = [];
@@ -141,7 +151,7 @@ describe("the full fight page", () => {
       practiced: { checked: true, search: "?mode=full&phase=1&seed=1&weapon=blowpipe&practice=1" },
       tab: "SETTINGS",
       assigned: [
-        "http://localhost/?mode=full&phase=3&weapon=blowpipe&practice=1&tier=raid&drained=0&tiles=1&markers=0&skip=0&pattern=0&vine=1",
+        "http://localhost/?mode=full&phase=3&weapon=blowpipe&practice=1&tier=raid&drained=0&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1",
       ],
     });
   });
@@ -167,7 +177,7 @@ describe("the full fight page", () => {
     navigation.restore();
     page.close();
 
-    expect(assigned).toEqual(["http://localhost/?seed=7&weapon=melee&practice=1&phase=4&tier=raid&drained=0&tiles=1&markers=0&skip=0&pattern=0&vine=1"]);
+    expect(assigned).toEqual(["http://localhost/?seed=7&weapon=melee&practice=1&phase=4&tier=raid&drained=0&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1"]);
   });
 
   test("Start with is the twisted bow unless the link names another, and only the weapon in hand changes", () => {
@@ -241,7 +251,7 @@ describe("the full fight page", () => {
       maxStarts: ["twistedBow Twisted bow (Masori)", "blowpipe Toxic blowpipe (Masori)", "ralos Tonalztics of Ralos (Inquisitor's)"],
       maxChosen: "blowpipe",
       maxLeftOut: null,
-      assigned: ["http://localhost/?seed=7&weapon=ralos&phase=4&tier=max&drained=0&tiles=1&markers=0&skip=0&pattern=0&vine=1&practice=0"],
+      assigned: ["http://localhost/?seed=7&weapon=ralos&phase=4&tier=max&drained=0&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1&practice=0"],
     });
   });
 
@@ -273,7 +283,7 @@ describe("the full fight page", () => {
     expect({ full, drained, assigned }).toEqual({
       full: { drained: false, defence: 250 },
       drained: { drained: true, defence: 150 },
-      assigned: ["http://localhost/?seed=7&phase=4&tier=raid&weapon=melee&drained=1&tiles=1&markers=0&skip=0&pattern=0&vine=1&practice=0"],
+      assigned: ["http://localhost/?seed=7&phase=4&tier=raid&weapon=melee&drained=1&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1&practice=0"],
     });
   });
 
@@ -303,7 +313,7 @@ describe("the full fight page", () => {
 
     expect({ fromUrl, assigned }).toEqual({
       fromUrl: { offered: ["1", "2", "3", "4"], value: "4", title: "Phase 4" },
-      assigned: ["http://localhost/?mode=full&phase=4&weapon=blowpipe&tier=raid&drained=0&tiles=1&markers=0&skip=0&pattern=0&vine=1&practice=0"],
+      assigned: ["http://localhost/?mode=full&phase=4&weapon=blowpipe&tier=raid&drained=0&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1&practice=0"],
     });
   });
 
@@ -339,6 +349,54 @@ describe("the full fight page", () => {
       hidden: { marks: 0, checked: false, search: "?mode=full&phase=1&seed=1&tiles=0" },
       restored: { marks: shown, checked: true, search: "?mode=full&phase=1&seed=1&tiles=1" },
       off: { marks: 0, checked: false },
+    });
+  });
+
+  test("the prayer guide starts off, its toggle shows the card at once with the volley in the air, and a reload keeps the choice", () => {
+    const card = () => document.getElementById("prayer_guide_card")?.textContent ?? null;
+    const { before, on, off } = withFullFight("/?mode=full&phase=1&seed=1", (page) => {
+      const region = fightRegion();
+      region.world.getReadyTimer = 0;
+      const told = () => region.rows("p1").some((row) => row.events.some((event) => event.kind === "prayer-told"));
+      for (let ticks = 0; ticks < 40 && !told(); ticks++) region.world.tickWorld();
+      const before = { checked: page.checked("prayer_guide"), inAids: page.element("learning_aids").contains(page.element("prayer_guide")), card: card() };
+      page.click("prayer_guide");
+      const on = { checked: page.checked("prayer_guide"), card: card(), search: window.location.search };
+      page.click("prayer_guide");
+      const off = { checked: page.checked("prayer_guide"), card: card(), search: window.location.search };
+      return { before, on, off };
+    });
+    const kept = withFullFight("/?mode=full&phase=1&seed=1&prayer=1", (saved) => saved.checked("prayer_guide"));
+
+    expect({ before, on, off, kept }).toEqual({
+      before: { checked: false, inAids: true, card: null },
+      on: { checked: true, card: "PROTECT MAGIClands in 4 ticksWhy: blue water orb (magic volley) thrown by Ocellus", search: "?mode=full&phase=1&seed=1&prayer=1" },
+      off: { checked: false, card: null, search: "?mode=full&phase=1&seed=1&prayer=0" },
+      kept: true,
+    });
+  });
+
+  test("the mechanics guide starts off, its toggle lists what is coming at once, and a reload keeps the choice", () => {
+    const card = () => document.getElementById("mechanics_guide_card")?.textContent ?? null;
+    const { before, on, off } = withFullFight("/?mode=full&phase=1&seed=1", (page) => {
+      const region = fightRegion();
+      region.world.getReadyTimer = 0;
+      const told = () => region.rows("p1").some((row) => row.events.some((event) => event.kind === "prayer-told"));
+      for (let ticks = 0; ticks < 40 && !told(); ticks++) region.world.tickWorld();
+      const before = { checked: page.checked("mechanics_guide"), inAids: page.element("learning_aids").contains(page.element("mechanics_guide")), card: card() };
+      page.click("mechanics_guide");
+      const on = { checked: page.checked("mechanics_guide"), card: card(), search: window.location.search };
+      page.click("mechanics_guide");
+      const off = { checked: page.checked("mechanics_guide"), card: card(), search: window.location.search };
+      return { before, on, off };
+    });
+    const kept = withFullFight("/?mode=full&phase=1&seed=1&tells=1", (saved) => saved.checked("mechanics_guide"));
+
+    expect({ before, on, off, kept }).toEqual({
+      before: { checked: false, inAids: true, card: null },
+      on: { checked: true, card: "4twater volley (magic)Protect from Magic", search: "?mode=full&phase=1&seed=1&tells=1" },
+      off: { checked: false, card: null, search: "?mode=full&phase=1&seed=1&tells=0" },
+      kept: true,
     });
   });
 
@@ -672,7 +730,7 @@ describe("the loadout editor", () => {
     expect({ before, marked, assigned, stored, bag, header }).toEqual({
       before: "Max",
       marked: "Max (edited)",
-      assigned: ["http://localhost/?seed=1&tier=max&weapon=ralos&phase=4&drained=0&tiles=1&markers=0&skip=0&pattern=0&vine=1&practice=0"],
+      assigned: ["http://localhost/?seed=1&tier=max&weapon=ralos&phase=4&drained=0&tiles=1&markers=0&prayer=0&tells=0&skip=0&pattern=0&vine=1&practice=0"],
       stored: { version: 1, values: { selected: "max", edits: { max: { presetRevision: 3, loadout: { equipment: MAX_WORN, inventory: withBag({ 13: 6685 }) } } } } },
       bag: withBag({ 13: 6685 }),
       header: { preset: "max", edited: true, equipment: MAX_WORN, inventory: withBag({ 13: 6685 }) },

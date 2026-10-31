@@ -259,3 +259,17 @@ export function lineTiles(from: ATile, to: ATile): ATile[] {
   }
   return tiles;
 }
+
+/** The tile nearest a body's centre. */
+export function bodyCentreTile(body: Body): ATile {
+  const c = bodyCentre(body);
+  return at(Math.round(c.x), Math.round(c.z));
+}
+
+/** The tiles strictly between two tiles on a straight line: a void siphon's heal flare is blocked by a player on one. */
+export function lineBetween(a: ATile, b: ATile): ATile[] {
+  const tiles: ATile[] = [];
+  const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.z - a.z));
+  for (let i = 1; i < steps; i++) tiles.push(at(Math.round(a.x + ((b.x - a.x) * i) / steps), Math.round(a.z + ((b.z - a.z) * i) / steps)));
+  return tiles;
+}

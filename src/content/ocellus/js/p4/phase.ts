@@ -19,6 +19,11 @@ import { PLATFORM } from "./floor";
 import type { Views } from "./present";
 import { presentRow } from "./present";
 
+/** What the full fight's guides read off a running P4: its prayer cues, its explosion marks and its schedule ahead. */
+export { specialCues } from "./cues";
+export { markedOn, p4Threats } from "./threats";
+export type { Marked } from "./threats";
+
 /**
  * A drill entry dresses a fresh player on P4's own platform, which only the mechanic tests run. The full fight's third fall carries the player as it stands, so
  * only the boss's HP and Defence, where the platform lies in the room, and phase 3's voids cross.
@@ -94,7 +99,8 @@ function rules(player: EncounterPlayer): Rules {
   };
 }
 
-export function p4Phase<E extends Entries & Readonly<{ p4: P4Entry }>>(watch: P4Watch): PhaseDef<E, "p4", TickRow, EncounterHost<E>> {
+/** `closed` takes each closed row, for the guides that read P4 as it runs. */
+export function p4Phase<E extends Entries & Readonly<{ p4: P4Entry }>>(watch: P4Watch, closed: (row: TickRow) => void): PhaseDef<E, "p4", TickRow, EncounterHost<E>> {
   return {
     name: "p4",
     enter({ region, room, player, bind }, entry) {
@@ -128,7 +134,9 @@ export function p4Phase<E extends Entries & Readonly<{ p4: P4Entry }>>(watch: P4
         openTick: () => ocellus.binding.openTick(),
         finishTick: () => {
           const row = ocellus.binding.finishTick();
-          if (row) presentRow(row, views, frame);
+          if (!row) return;
+          presentRow(row, views, frame);
+          closed(row);
         },
         rows: () => ocellus.binding.rows,
         leave: () => {

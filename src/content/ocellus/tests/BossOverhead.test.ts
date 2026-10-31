@@ -27,7 +27,7 @@ describe("his overhead prayer", () => {
 
     Settings.readFromStorage();
     const options: FullFightOptions = {
-      seed: 1, party: 1, startPhase: 3, hazardTiles: false, videoMarkers: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false,
+      seed: 1, party: 1, startPhase: 3, hazardTiles: false, videoMarkers: false, prayerGuide: false, mechanicsGuide: false, skipMarkers: false, patternMarkers: false, soloVine: true, invincible: true, defenceDrained: false,
     };
     const region = new FightRegion(options, () => undefined);
     const trainer = new TrainerInstance(region, { force2d: true });

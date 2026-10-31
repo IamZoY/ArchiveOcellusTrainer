@@ -6,7 +6,7 @@ import type { FullFightOptions } from "../full/region";
 import { FightRegion } from "../full/region";
 import type { P1Cause, P1Event, P1Look, P1Row, P1Types } from "../full/p1/types";
 
-export type P1RunOptions = Readonly<{ seed?: number; practice?: boolean; hazardTiles?: boolean }>;
+export type P1RunOptions = Readonly<{ seed?: number; practice?: boolean; hazardTiles?: boolean; prayerGuide?: boolean; mechanicsGuide?: boolean }>;
 
 /** The full fight's own region started at phase 1, as `?mode=full&phase=1` starts it, ticked by hand. */
 export function startP1(options: P1RunOptions = {}) {
@@ -17,6 +17,8 @@ export function startP1(options: P1RunOptions = {}) {
     startPhase: 1,
     hazardTiles: options.hazardTiles ?? true,
     videoMarkers: false,
+    prayerGuide: options.prayerGuide ?? false,
+    mechanicsGuide: options.mechanicsGuide ?? false,
     skipMarkers: false,
     patternMarkers: false,
     soloVine: true,
