@@ -228,9 +228,9 @@ function About() {
   );
 }
 
-export type SidebarSlots = Readonly<{ fight: ReactNode; aids: ReactNode; tips: ReactNode }>;
+export type SidebarSlots = Readonly<{ fight: ReactNode; aids: ReactNode; tips: ReactNode; coop?: ReactNode }>;
 
-export default function Sidebar({ fight, aids, tips }: SidebarSlots) {
+export default function Sidebar({ fight, aids, tips, coop }: SidebarSlots) {
   useLayoutEffect(() => {
     if (!phoneLayout()) return;
     const root = document.documentElement;
@@ -259,6 +259,7 @@ export default function Sidebar({ fight, aids, tips }: SidebarSlots) {
           <h3>Ocellus</h3>
           <div className="sidebar_subtitle">The Fractured Archive</div>
           <Section id="sidebar_fight" title="Fight">{fight}</Section>
+          {coop !== undefined && <Section id="sidebar_coop" title="Co-op">{coop}</Section>}
           <Section id="learning_aids" title="Learning aids">
             {aids}
             <SettingToggles toggles={TILE_INDICATORS} />

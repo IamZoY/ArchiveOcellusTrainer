@@ -1,19 +1,19 @@
 import { loadPage } from "./page";
 
 const SEEN_RELEASE_KEY = "archive-ocellus:seen-release";
-const SHOWN_VERSIONS = ["2026.10.29", "2026.10.28", "2026.10.27", "2026.10.26.2", "2026.10.26.1"];
-const TIMING_FIXES =
-  "In phase 3, a sever blocks your protection prayers for one tick, as in game, so Protect from Melee clicked straight back on is up for the next saw, and \"Your panic... is futile...\" now warns of a Void Vine, not his magic shot. In phase 1, he walks out of the middle a tick later after his strike.";
+const SHOWN_VERSIONS = ["2026.10.31", "2026.10.29", "2026.10.28", "2026.10.27", "2026.10.26.2"];
+const COOP_NOTE =
+  "You see each other walk, pray and take damage as it happens, with each player's health above them. The boss is on one of you at a time, marked beside that person's name in the Co-op list, and only that person takes its hits. If you die you keep watching whoever is still standing, as in game.";
 
 const NEXT_RELEASE = {
-  version: "2026.10.28",
-  date: "2026-10-28",
+  version: "2026.10.29",
+  date: "2026-10-29",
   notes: [
-    "Insolence's three waves now leave the damaging void field on every tile they hit, as in game.",
-    "In the full fight's phase 3, you cross a chasm in four quick jumps, one a tick, from the bank onto each stepping stone and off the far one, as in game.",
-    "About 1 run in 10 sends an anonymous performance summary, so we can find what causes lag. To turn it off, untick Performance data under About.",
-    "The site opens straight into the full fight, starting at phase 4, with every phase in the Start at selector. The separate phase 4 drill page is gone.",
-    "Settings is one panel: Fight, Learning aids, Sound, Controls, then About, which keeps What's new and the Performance data box. In Fight, Start with picks the weapon in your hand: the twisted bow (the default), the toxic blowpipe, or the scythe in melee gear, with the same inventory either way. Tick Defence drained to start each phase with his Defence as low as it goes.",
+    "Tick Fixed mode under Display for the classic fixed interface: the 765 by 503 frame, scaled to fit the window, with its minimap, orbs, tabs and side panel where the fixed client puts them. Chat sits in the frame's chatbox in black text, and the camera turns and zooms only from the game view, as in game.",
+    "Phase 2's portal gaps follow the game's three set patterns, orange, red and green, in the game's order after a random first, and Phase 2 patterns in Learning aids numbers every wave's safe spot, 1 to 6, in its pattern's colour.",
+    "In phase 3, the Void Rift, Void Siphon and Void Augmenter now play their spawn, despawn and detonate animations, and killing a Void Siphon heals you 22.",
+    "Your bag now carries ranging potions instead of Bastion potions, and potion boosts wear off over time as in game, 1 level a minute.",
+    "In phase 3, a sever blocks your protection prayers for one tick, as in game, so Protect from Melee clicked straight back on is up for the next saw, and \"Your panic... is futile...\" now warns of a Void Vine, not his magic shot. In phase 1, he walks out of the middle a tick later after his strike.",
   ],
 };
 
@@ -65,18 +65,18 @@ describe("What's new", () => {
   });
 
   test("a player who saw the last shipped release sees the dot again, and What's new opens on the unshipped releases, newest first, with the next shipped one below them", () => {
-    localStorage.setItem(SEEN_RELEASE_KEY, "2026.10.28");
+    localStorage.setItem(SEEN_RELEASE_KEY, "2026.10.29");
     const page = loadPage("/");
     const { menuDot } = whatsNew(page);
     page.click("whats_new");
     const { releases } = whatsNew(page);
     page.close();
     expect({ menuDot, unshipped: releases.slice(0, 1).map((release) => release.version), next: releases[1] }).toEqual({
-      menuDot: true, unshipped: ["2026.10.29"], next: NEXT_RELEASE,
+      menuDot: true, unshipped: ["2026.10.31"], next: NEXT_RELEASE,
     });
   });
 
-  test("What's new lists the five newest releases, 2026.10.29 with the phase 1 and 3 timing fixes, and links the older ones to GitHub Releases", () => {
+  test("What's new lists the five newest releases, 2026.10.31 with the co-op notes, and links the older ones to GitHub Releases", () => {
     const page = loadPage("/");
     page.click("whats_new");
     const { releases } = whatsNew(page);
@@ -84,7 +84,7 @@ describe("What's new", () => {
     page.close();
     expect({ versions: releases.map((release) => release.version), newest: releases[0]?.notes, older }).toEqual({
       versions: SHOWN_VERSIONS,
-      newest: expect.arrayContaining([TIMING_FIXES]),
+      newest: expect.arrayContaining([COOP_NOTE]),
       older: [["Older releases", "https://github.com/Julian-Dasilva/ArchiveOcellusTrainer/releases", "_blank", "noopener noreferrer"]],
     });
   });

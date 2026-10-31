@@ -1,4 +1,8 @@
-import React, { useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
+import type { Player } from "osrs-sdk";
+import { CoopPanel, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby";
+import { useCoop } from "../../../multiplayer/useCoop";
+import type { FightBridge } from "../../../multiplayer/useCoop";
 import { CacheRender, TrainerInstance, Viewport } from "osrs-sdk";
 import type { Location3, Region, TrainerLoadingState } from "osrs-sdk";
 import { GameOverlay, RuneScapeButton, TrainerApp } from "osrs-sdk-react";
@@ -543,7 +547,7 @@ function countedNames(items: readonly TierItem[]): string {
   return [...counts].map(([name, count]) => (count === 1 ? name : `${name} ×${count}`)).join(", ");
 }
 
-function FullFightSidebar({ params, region, stage, clock, loadouts }: Readonly<{ params: Params; region: FightRegion; stage: Stage | null; clock: RunClock; loadouts: TierLoadouts }>) {
+function FullFightSidebar({ params, region, stage, clock, loadouts, coop }: Readonly<{ params: Params; region: FightRegion; stage: Stage | null; clock: RunClock; loadouts: TierLoadouts; coop: React.ReactNode }>) {
   const [draft, setDraft] = useState<Omit<Params, "tier">>(params);
   const set = (patch: Partial<Omit<Params, "tier">>) => setDraft((current) => ({ ...current, ...patch }));
   const { tier, active } = useTierLoadout(loadouts);
@@ -552,6 +556,7 @@ function FullFightSidebar({ params, region, stage, clock, loadouts }: Readonly<{
   const chosen = () => ({ ...draft, tier, weapon: tierStart(loadouts.active(), draft.weapon) });
   return (
     <Sidebar
+      coop={coop}
       fight={
         <>
           <label>
@@ -815,9 +820,31 @@ export function FullFightPage() {
   const download = useFirstDownload(params.startPhase, !ready);
   const ended = stage !== null && endingOf(stage) !== null;
 
+  // What a shared fight needs of this page: a tick to ride, the local player to report, and the aim to redirect.
+  const bridge: FightBridge = useMemo(
+    () => ({
+      onTick: (listener) => region.onTick(listener),
+      tickNow: () => region.world?.globalTickCounter ?? 0,
+      localPlayer: (): Player | null => region.players[0] ?? null,
+      protection: () => region.players[0]?.prayerController.matchFeature("melee") ? "melee" : region.players[0]?.prayerController.matchFeature("range") ? "ranged" : region.players[0]?.prayerController.matchFeature("magic") ? "magic" : null,
+      aimAt: (unit) => region.aimAt(unit),
+      spawn: () => ({ x: region.players[0]?.location.x ?? 0, y: region.players[0]?.location.y ?? 0 }),
+      region,
+      seed: params.seed,
+      startPhase: params.startPhase,
+      startFight: () => {
+        if (clock.state().kind === "set-up") clock.start();
+      },
+    }),
+    [region, params.seed, params.startPhase, clock],
+  );
+  const coop = useCoop(bridge);
+  const inRoom = coop.client.phase().kind === "lobby" || coop.client.phase().kind === "fighting";
+
   useEffect(() => {
     const style = document.createElement("style");
-    style.textContent = FULL_FIGHT_CSS;
+    style.textContent = `${FULL_FIGHT_CSS}
+${LOBBY_CSS}`;
     document.head.append(style);
     if (process.env.NODE_ENV !== "production") {
       exposeProbe(trainer, region);
@@ -854,9 +881,17 @@ export function FullFightPage() {
           <Chatbox stage={stage} region={region} />
         </div>
         {stage && <Result stage={stage} region={region} params={params} clock={clock} />}
-        {!ended && <RunGate clock={clock} ready={ready} />}
+        {coop.dead && <SpectateBanner watching={coop.watchingName} />}
+        {!ended && !inRoom && <RunGate clock={clock} ready={ready} />}
       </GameOverlay>
-      <FullFightSidebar params={params} region={region} stage={stage} clock={clock} loadouts={loadouts} />
+      <FullFightSidebar
+        params={params}
+        region={region}
+        stage={stage}
+        clock={clock}
+        loadouts={loadouts}
+        coop={<CoopPanel client={coop.client} seed={params.seed} startPhase={params.startPhase} targetId={coop.targetId} />}
+      />
     </TrainerApp>
   );
 }

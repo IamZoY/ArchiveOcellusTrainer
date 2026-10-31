@@ -168,8 +168,17 @@ export class EncounterBinding<T extends Encounter> {
   private readonly stream: CombatStream;
   private readonly rolls = new WeakMap<Projectile, number>();
 
-  constructor(seed: Seed, private readonly start: Tick, private readonly player: Player, private readonly hooks: Hooks<T>) {
+  /**
+   * `aim` names the unit the running phase treats as "the player": the one it observes, hits and heals. A solo run
+   * always aims at its own player. In a shared fight every client aims at the one the room agreed the boss is on, so
+   * only that person's own machine puts the damage on a real player and the rest put it on a puppet.
+   */
+  constructor(seed: Seed, private readonly start: Tick, private readonly aim: () => Player, private readonly hooks: Hooks<T>) {
     this.stream = new CombatStream(seed);
+  }
+
+  private get player(): Player {
+    return this.aim();
   }
 
   get rows(): readonly T["row"][] {

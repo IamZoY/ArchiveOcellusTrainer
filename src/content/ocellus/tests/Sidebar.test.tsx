@@ -167,11 +167,11 @@ describe("the sidebar", () => {
     }
   });
 
-  test("the side panel is the only scroll container, never scrolls sideways, lists Fight, Learning aids, Display, Sound, Controls and About with the phase tips in Learning aids, and the policy line sits below the game canvas", () => {
+  test("the side panel is the only scroll container, never scrolls sideways, lists Fight, Co-op, Learning aids, Display, Sound, Controls and About with the phase tips in Learning aids, and the policy line sits below the game canvas", () => {
     const page = loadPage("/");
     const layout = sidebarLayout();
     page.close();
 
-    expect(layout).toEqual({ scrollContainers: ["right_panel"], panelOverflowX: "hidden", sections: ["Fight", "Learning aids", "Display", "Sound", "Controls", "About"], tipsIn: "learning_aids", policy: POLICY_BELOW_GAME });
+    expect(layout).toEqual({ scrollContainers: ["right_panel"], panelOverflowX: "hidden", sections: ["Fight", "Co-op", "Learning aids", "Display", "Sound", "Controls", "About"], tipsIn: "learning_aids", policy: POLICY_BELOW_GAME });
   });
 });

@@ -21,6 +21,34 @@ npm start                       # http://127.0.0.1:8002
 
 `npm run assets` extracts models from OpenRS2 cache 2746 into `public/osrs-assets/`, which is never committed. It then draws an inventory icon for each of the trainer's own items, and for the Masori (f) pieces and Zaryte vambraces, from the item's model in the same cache, the way the game client draws it, into `public/osrs-assets/item-icons/`, and writes the boss's overhead icons from the cache's sprite index into `public/osrs-assets/sprites/`. `npm run item-icons` with the same two options redraws only the icons. `npm start` and `npm run build` first run `src/assetBundle/check.ts`, which fails and names each missing key when `public/osrs-assets/` comes from another cache or lacks an asset that `src/assets.ts` configures: in `build-info.json`, in `manifest.json`, as a payload file the manifest names, or in the sound pack. The page logs one `assets:` console error for each configured NPC, model or spotanim its served manifest lacks. The icon renderer in `src/itemIcons/` is ported from RuneLite's cache tool under its BSD 2-clause licence.
 
+## Co-op
+
+Several people can train one fight together. One of you hosts: **Co-op** in the side panel gives a six-letter code,
+and everyone else types it in or opens the link, which carries `?room=CODE`. When all are ready the host starts, and
+every client runs that fight from the host's seed, so the boss's timings, cracks, rifts and explosions are the same
+for everyone. You see each other walk, pray and take damage live, and a player who dies keeps watching someone who
+is still up.
+
+The boss is on one person at a time. Every client points its fight at whoever the room agreed the boss is on, so the
+damage lands on that person's machine and on nobody else's; the host is the one that says who that is and what each
+hit did. A guest that opened the page on a different seed reloads onto the host's and rejoins by itself.
+
+The room server carries the words between machines and holds no fight of its own. It serves the built site too, so a
+VPS needs one process:
+
+```sh
+npm ci
+scripts/install-beta-sdk.sh
+npm run assets -- --cache-dir <openrs2 cache dir> --reader-path <osrscachereader checkout>
+npm run build
+npm run serve -- --port 8080 --dist dist
+```
+
+Put it behind a TLS terminator and make sure that proxy does **not** buffer responses, or the event stream arrives in
+lumps: for nginx, `proxy_buffering off;` and `proxy_read_timeout 1h;` on the `/mp/` location. Rooms live in memory, so
+restarting the server ends every fight in progress. A room holds at most 8 players, empties when its last stream
+closes, and hands the host seat on if the host leaves.
+
 ## Review
 
 CI keeps the OpenRS2 download, pinned cache reader and validated SDK packs in its `netlify-cache` directory. The key hashes `scripts/netlify-build.sh`, `osrs-assets.config.ts` and `scripts/install-beta-sdk.sh`, covering the reader pin, OpenRS2 cache ID and SDK pin. A key miss restores a previous `osrs-cache-` entry. The build removes other OpenRS2 cache IDs, and the installer removes old SDK packs while holding its cache lock only when `NETLIFY_CACHE_DIR` is set. Shared developer caches retain packs for every SDK pin. The assets job gives its base build a separate cache copy. The build checks the OpenRS2 cache ID and metadata, selects the reader by commit and validates the SDK packs against the SDK pin before reuse. An asset build that fails after an archive download reports its URL and received byte count beside the original error.

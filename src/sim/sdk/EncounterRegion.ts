@@ -23,6 +23,13 @@ export class EncounterRegion<E extends Entries, Ph extends Phases<E, EncounterHo
   private player: EncounterPlayer | null = null;
   private bound: PlayerHost | null = null;
   private scenery: MountedRoom | null = null;
+  /** Set only by a shared fight, to the unit the room agreed the boss is on. Null means this client's own player. */
+  private aimed: Player | null = null;
+
+  /** Points the running phase at another unit between ticks. Swapping inside a tick would split one turn in two. */
+  aimAt(unit: Player | null): void {
+    this.aimed = unit;
+  }
 
   constructor(private readonly setup: Setup<E, Ph, Region>) {
     super();
@@ -113,7 +120,7 @@ export class EncounterRegion<E extends Entries, Ph extends Phases<E, EncounterHo
       bind: (start, hooks) => {
         // The binding reads the player's steps off the SDK in room tiles; the phase reasons in its own.
         const inPhaseTiles: typeof hooks = { ...hooks, "player-moved": (moved) => hooks["player-moved"]({ ...moved, steps: moved.steps.map((at) => player.local(at)), at: player.local(moved.at) }) };
-        const binding = new EncounterBinding(director.seed, start, player, inPhaseTiles);
+        const binding = new EncounterBinding(director.seed, start, () => this.aimed ?? player, inPhaseTiles);
         this.bound = binding;
         return binding;
       },

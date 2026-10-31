@@ -19,7 +19,8 @@
     "check-types": "node scripts/check-types.mjs",
     "typecheck:tsc": "tsc --noEmit && node scripts/check-types.mjs",
     "assets": "bash scripts/assets.sh",
-    "item-icons": "tsx src/itemIcons/build.ts"
+    "item-icons": "tsx src/itemIcons/build.ts",
+    "serve": "tsx src/multiplayer/server.ts"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

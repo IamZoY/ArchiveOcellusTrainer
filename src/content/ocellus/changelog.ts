@@ -2,6 +2,13 @@ import type { Changelog } from "../../releases";
 
 export const CHANGELOG: Changelog = [
   {
+    version: "2026.10.31",
+    notes: [
+      "Train the fight together. Co-op in the side panel gives a six-letter code to pass to your friends; they type it in or open the link you send, everyone presses Ready, and the host starts. You all fight the one boss on the same timings, so a crack, a rift or an explosion falls on the same tick for everyone.",
+      "You see each other walk, pray and take damage as it happens, with each player's health above them. The boss is on one of you at a time, marked beside that person's name in the Co-op list, and only that person takes its hits. If you die you keep watching whoever is still standing, as in game.",
+    ],
+  },
+  {
     version: "2026.10.29",
     notes: [
       "Tick Fixed mode under Display for the classic fixed interface: the 765 by 503 frame, scaled to fit the window, with its minimap, orbs, tabs and side panel where the fixed client puts them. Chat sits in the frame's chatbox in black text, and the camera turns and zooms only from the game view, as in game.",
@@ -36,14 +43,6 @@ export const CHANGELOG: Changelog = [
       "Ocellus plays his death animation when you kill him, glows as he steals your lifeforce in the melee phase, and a gust blows back at you when Deflect turns your hit away. Your lifeforce orb plays a heal sound as it returns your HP.",
       "Explosions hit 14 to 16, a transition attack you pray against hits up to 10, and the inner orb stays one tick longer, as the recorded fights show.",
       "Void rifts come 2, 3, 4 and then 5 a cycle, on random tiles 2 to 5 from Ocellus, as in the recorded fights.",
-    ],
-  },
-  {
-    version: "2026.10.26.1",
-    notes: [
-      "The fight waits for you. Set your keybinds and settings first, then press Start to begin the GET READY countdown.",
-      "Pause with the Pause button or P. While paused you can change keybinds and settings, and the fight resumes on the same tick. The result shows how long you paused.",
-      "The trainer now opens when your browser blocks site storage or the storage is full. Your settings then reset each time the page reloads, which Restart does.",
     ],
   },
 ];

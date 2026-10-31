@@ -101,7 +101,7 @@ async function encounter(start: Tick, judged: number) {
       return { row: `${time.encounter}: [${inputs.join(", ")}] ${events.join(", ")}`, ending };
     },
   };
-  const binding: EncounterBinding<Probe> = new Binding(seed(1), start, player, hooks);
+  const binding: EncounterBinding<Probe> = new Binding(seed(1), start, () => player, hooks);
   return { world, player, npc, binding, frames };
 }
 
