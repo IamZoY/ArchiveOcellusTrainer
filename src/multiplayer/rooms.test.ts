@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { Rooms, randomFrom, rosterOf, statesOf, why } from "./rooms";
+import { Rooms, drainStates, randomFrom, rosterOf, statesOf, why } from "./rooms";
 import type { PlayerState } from "./protocol";
-import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
+import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState, parseWorn } from "./protocol";
 
 /** A counter stands in for randomness so every code and id in a test is known in advance. */
 function counting() {
@@ -12,7 +12,7 @@ function counting() {
 const rooms = () => new Rooms(counting());
 
 function stateAt(at: number, overrides: Partial<PlayerState> = {}): PlayerState {
-  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, ...overrides };
+  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, worn: null, ...overrides };
 }
 
 describe("room codes", () => {
@@ -44,18 +44,55 @@ describe("joining", () => {
     expect(all.get(room.code)?.startPhase).toBe(3);
   });
 
-  it("refuses an unknown code, a full room and a fight already under way", () => {
+  it("refuses an unknown code and a full room", () => {
     const all = rooms();
     expect(all.join("AAAAAA", "Ziad", 0)).toMatchObject({ ok: false, why: { kind: "no-room" } });
 
-    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    const { room } = all.open("Zoy", 7, 1, 0);
     for (let i = 1; i < MAX_PLAYERS; i++) expect(all.join(room.code, `P${i}`, 0).ok).toBe(true);
     expect(all.join(room.code, "late", 0)).toMatchObject({ ok: false, why: { kind: "full" } });
+  });
 
-    for (const member of room.seats.values()) all.setReady(room.code, member.id, member.token, true, 0);
+  it("takes a seat for the next run rather than turning away someone who arrives mid-fight", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    all.setReady(room.code, seat.id, seat.token, true, 0);
     expect(all.start(room.code, seat.id, seat.token, 0).ok).toBe(true);
-    const after = all.join(room.code, "later", 0);
-    expect(after).toMatchObject({ ok: false, why: { kind: "already-started" } });
+
+    const late = all.join(room.code, "Ziad", 0);
+    expect(late.ok).toBe(true);
+    expect(rosterOf(room).map((member) => member.name)).toEqual(["Zoy", "Ziad"]);
+    expect(room.started).toBe(true);
+  });
+
+  it("refuses a name someone in the room is still answering to", () => {
+    const all = rooms();
+    const { room } = all.open("Zoy", 7, 1, 0);
+    expect(all.join(room.code, "zoy", 1_000)).toMatchObject({ ok: false, why: { kind: "name-taken" } });
+  });
+
+  it("hands a quiet seat back to the same name, so a reload or a closed browser comes back as who it was", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    all.setReady(room.code, seat.id, seat.token, true, 0);
+    expect(all.start(room.code, seat.id, seat.token, 0).ok).toBe(true);
+
+    const back = all.join(room.code, "Zoy", RECLAIM_AFTER_MS + 1);
+    if (!back.ok) throw new Error(`reclaim refused: ${why(back.why)}`);
+    expect(back.value.seat.id).toBe(seat.id);
+    expect(back.value.seat.token).not.toBe(seat.token);
+    expect(room.seats.size).toBe(1);
+    expect(room.hostId).toBe(seat.id);
+    expect(rosterOf(room)[0]).toMatchObject({ name: "Zoy", host: true, ready: true });
+  });
+
+  it("will not let the old token move a seat that has been handed back", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    const back = all.join(room.code, "Zoy", RECLAIM_AFTER_MS + 1);
+    if (!back.ok) throw new Error("reclaim refused");
+    expect(all.setReady(room.code, seat.id, seat.token, true, 0)).toMatchObject({ ok: false, why: { kind: "bad-token" } });
+    expect(all.setReady(room.code, seat.id, back.value.seat.token, true, 0).ok).toBe(true);
   });
 });
 
@@ -127,6 +164,23 @@ describe("reports", () => {
     expect(states[0]?.tick).toBe(2);
     expect(room.seats.get(seat.id)?.dead).toBe(true);
   });
+
+  it("drains every tile that was reported, in order, and only once", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    for (const tick of [1, 2, 3]) all.report(room.code, seat.id, seat.token, stateAt(tick, { id: seat.id, tile: { x: tick, y: 0 } }), 0);
+    expect(drainStates(room).map((state) => state.tile.x)).toEqual([1, 2, 3]);
+    expect(drainStates(room)).toEqual([]);
+  });
+
+  it("drops the stalest reports from a seat that is not keeping up, rather than growing without end", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    for (let tick = 1; tick <= 20; tick++) all.report(room.code, seat.id, seat.token, stateAt(tick, { id: seat.id }), 0);
+    const drained = drainStates(room);
+    expect(drained.length).toBeLessThanOrEqual(8);
+    expect(drained[drained.length - 1]?.tick).toBe(20);
+  });
 });
 
 describe("leaving and sweeping", () => {
@@ -168,6 +222,19 @@ describe("parsing what arrives from another machine", () => {
 
   it("caps reported hp at the reported maximum, so nobody claims more than they have", () => {
     expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 9999, maxHp: 99 }, "me")?.hp).toBe(99);
+  });
+
+  it("reads a worn kit, dropping slots and ids no build of this could mean", () => {
+    expect(parseWorn({ weapon: 22547, chest: 27238 })).toEqual({ weapon: 22547, chest: 27238 });
+    expect(parseWorn({ weapon: 22547, "drop table": 1, legs: -3, feet: 1.5, cape: "none" })).toEqual({ weapon: 22547 });
+    expect(parseWorn({})).toBeNull();
+    expect(parseWorn("twisted bow")).toBeNull();
+    expect(parseWorn(null)).toBeNull();
+  });
+
+  it("carries a worn kit through a whole state, so a swap mid-fight crosses the wire", () => {
+    expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1, worn: { weapon: 22547 } }, "me")?.worn).toEqual({ weapon: 22547 });
+    expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1 }, "me")?.worn).toBeNull();
   });
 
   it("keeps only the prayers the fight knows", () => {

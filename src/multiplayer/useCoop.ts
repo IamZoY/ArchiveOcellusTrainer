@@ -13,7 +13,7 @@ import type { Connection } from "./client";
 import { MultiplayerSession } from "./session";
 import type { FightPorts, LocalView } from "./session";
 import { codeInUrl } from "./Lobby";
-import type { Gear, PlayerId, Style } from "./protocol";
+import type { Gear, PlayerId, Style, Worn } from "./protocol";
 import type { Dresser } from "./RemotePlayer";
 
 const NAME_KEY = "archive-ocellus-coop-name";
@@ -45,8 +45,9 @@ export type FightBridge = Readonly<{
   startFight(): void;
   /** True once this client's own run has ended in a death. */
   lost(): boolean;
-  /** What this player is wearing, and how to put someone else's on a puppet. */
+  /** What this player named in the lobby, what they have on right now, and how to put either on a puppet. */
   gear(): Gear;
+  worn(): Worn | null;
   dress: Dresser;
 }>;
 
@@ -143,6 +144,7 @@ export function useCoop(bridge: FightBridge): CoopHandle {
           hp: player.currentStats.hitpoint,
           maxHp: player.stats.hitpoint,
           prayer: bridge.protection(),
+          worn: bridge.worn(),
         };
       },
       kill: () => {

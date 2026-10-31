@@ -3,7 +3,7 @@
  * back. That keeps the rules testable without a socket, and keeps the transport free of decisions.
  */
 import type { Authority, Gear, Intent, Member, PlayerId, PlayerState, RoomCode, Roster, ServerEvent } from "./protocol";
-import { CODE_ALPHABET, CODE_LENGTH, MAX_PLAYERS, STALE_MS } from "./protocol";
+import { CODE_ALPHABET, CODE_LENGTH, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS } from "./protocol";
 
 export type Rejection =
   | Readonly<{ kind: "no-room" }>
@@ -54,6 +54,9 @@ type Seat = {
   dead: boolean;
   seenAt: number;
   state: PlayerState | null;
+  /** Reports since the last flush, oldest first. Every one is a tile of a walk, so none is thrown away for being
+   * out of date: the flush timer is shorter than a tick, but a bunched-up connection can still land two at once. */
+  pending: PlayerState[];
 };
 
 export type Room = {
@@ -78,6 +81,9 @@ export function randomFrom(bytes: (n: number) => Uint8Array): Random {
   };
 }
 
+/** A seat this far behind is not catching up, and the stalest of its reports are no longer worth anyone's wire. */
+const PENDING_MAX = 8;
+
 export class Rooms {
   private readonly rooms = new Map<RoomCode, Room>();
 
@@ -101,21 +107,32 @@ export class Rooms {
   }
 
   private seat(name: string, now: number, gear: Gear | null): Seat {
-    return { id: this.random.id(), token: this.random.id(), name, gear, ready: false, dead: false, seenAt: now, state: null };
+    return { id: this.random.id(), token: this.random.id(), name, gear, ready: false, dead: false, seenAt: now, state: null, pending: [] };
   }
 
   get(code: RoomCode): Room | null {
     return this.rooms.get(code) ?? null;
   }
 
-  join(code: RoomCode, name: string, now: number, gear: Gear | null = null): Outcome<Readonly<{ room: Room; seat: Seat }>> {
+  /**
+   * A fight in progress is no reason to turn anyone away: a seat is taken for the next run instead. Someone who is
+   * already in this run and comes back to it is a harder case, since the fight is a pure function of its seed from
+   * tick one and there is no catching up with it, so they wait in the lobby with everyone else who arrives late.
+   */
+  join(code: RoomCode, name: string, now: number, gear: Gear | null = null, reclaimAfterMs: number = RECLAIM_AFTER_MS): Outcome<Readonly<{ room: Room; seat: Seat }>> {
     const room = this.rooms.get(code);
     if (!room) return no({ kind: "no-room" });
-    if (room.started) return no({ kind: "already-started" });
+    const held = seatNamed(room, name);
+    if (held !== null) {
+      // One name to a room, so a second tab on one machine cannot bring a twin. A seat nobody has answered for in a
+      // while is a different thing: that is the same person coming back from a reload, a crash or a closed browser,
+      // and handing it back is what keeps them who they were, host seat and all.
+      if (now - held.seenAt <= reclaimAfterMs) return no({ kind: "name-taken" });
+      const back: Seat = { ...held, token: this.random.id(), gear: gear ?? held.gear, seenAt: now, state: null, pending: [] };
+      room.seats.set(back.id, back);
+      return ok({ room, seat: back });
+    }
     if (room.seats.size >= MAX_PLAYERS) return no({ kind: "full" });
-    // One name to a room: two figures called the same thing are unreadable in a roster and on a boss tag, and a
-    // second tab on one machine is how it usually happens.
-    if (takenIn(room, name)) return no({ kind: "name-taken" });
     const seat = this.seat(name, now, gear);
     room.seats.set(seat.id, seat);
     return ok({ room, seat });
@@ -178,6 +195,7 @@ export class Rooms {
     for (const member of room.seats.values()) {
       member.dead = false;
       member.state = null;
+      member.pending = [];
       member.seenAt = now;
     }
     return ok(room);
@@ -186,9 +204,12 @@ export class Rooms {
   report(code: RoomCode, id: PlayerId, token: string, state: PlayerState, now: number): Outcome<Room> {
     const found = this.authorise(code, id, token);
     if (!found.ok) return found;
-    found.value.seat.state = state;
-    found.value.seat.seenAt = now;
-    if (state.dead) found.value.seat.dead = true;
+    const { seat } = found.value;
+    seat.state = state;
+    seat.pending.push(state);
+    if (seat.pending.length > PENDING_MAX) seat.pending.splice(0, seat.pending.length - PENDING_MAX);
+    seat.seenAt = now;
+    if (state.dead) seat.dead = true;
     return ok(found.value.room);
   }
 
@@ -262,15 +283,33 @@ export class Rooms {
 
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+function seatNamed(room: Room, name: string): Seat | null {
+  return [...room.seats.values()].find((seat) => sameName(seat.name, name)) ?? null;
+}
+
 export function takenIn(room: Room, name: string): boolean {
-  return [...room.seats.values()].some((seat) => sameName(seat.name, name));
+  return seatNamed(room, name) !== null;
 }
 
 export function rosterOf(room: Room): Roster {
   return [...room.seats.values()].map((seat): Member => ({ id: seat.id, name: seat.name, ready: seat.ready, host: seat.id === room.hostId, dead: seat.dead, gear: seat.gear }));
 }
 
-/** Everyone's latest report, newest wins, with the reporter's own left out by the caller if it wants. */
+/**
+ * Everything reported since the last call, in the order it was said, and cleared as it goes. Sending only each
+ * seat's newest would lose a tile whenever two reports land between two flushes, and a lost tile is a figure that
+ * skips across the floor on every other screen.
+ */
+export function drainStates(room: Room): readonly PlayerState[] {
+  const states: PlayerState[] = [];
+  for (const seat of room.seats.values()) {
+    states.push(...seat.pending);
+    seat.pending = [];
+  }
+  return states;
+}
+
+/** Everyone's latest report, for anything that wants a picture of the room rather than what has just changed. */
 export function statesOf(room: Room): readonly PlayerState[] {
   return [...room.seats.values()].flatMap((seat) => (seat.state === null ? [] : [seat.state]));
 }

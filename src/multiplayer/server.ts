@@ -14,7 +14,7 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import type { PlayerId, RoomCode, ServerEvent } from "./protocol";
 import { HEARTBEAT_MS, encodeEvent, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
 import type { Room } from "./rooms";
-import { Rooms, randomFrom, rosterOf, statesOf, why } from "./rooms";
+import { Rooms, drainStates, randomFrom, rosterOf, why } from "./rooms";
 
 const MAX_BODY_BYTES = 8192;
 const STATE_FLUSH_MS = 120;
@@ -70,7 +70,7 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 const field = (raw: unknown, key: string): unknown => (typeof raw === "object" && raw !== null && !Array.isArray(raw) ? Reflect.get(raw, key) : undefined);
 const asText = (raw: unknown): string => (typeof raw === "string" ? raw : "");
 
-export type ServerOptions = Readonly<{ heartbeatMs?: number; staleMs?: number }>;
+export type ServerOptions = Readonly<{ heartbeatMs?: number; staleMs?: number; reclaimAfterMs?: number }>;
 
 export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   const heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
@@ -92,7 +92,9 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
   function flush(): void {
     for (const code of dirty) {
       const room = rooms.get(code);
-      if (room) publish(code, { kind: "states", states: statesOf(room) });
+      if (!room) continue;
+      const states = drainStates(room);
+      if (states.length > 0) publish(code, { kind: "states", states });
     }
     dirty.clear();
   }
@@ -131,8 +133,9 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     streams.add(stream);
     rooms.touch(code, id, Date.now());
 
-    response.write(encodeEvent({ kind: "welcome", you: id, code, seed: room.seed, startPhase: room.startPhase, roster: rosterOf(room) }));
-    if (room.started) response.write(encodeEvent({ kind: "start", seed: room.seed, startPhase: room.startPhase, at: room.startedAt ?? Date.now(), run: room.runs }));
+    // No `start` for a stream that opens mid-fight, however it got here. The fight runs off its seed from tick one
+    // and there is no joining it halfway; the welcome says it is on, and the client waits for the next run.
+    response.write(encodeEvent({ kind: "welcome", you: id, code, seed: room.seed, startPhase: room.startPhase, roster: rosterOf(room), started: room.started }));
     announce(room);
 
     // A closed stream is not a departure. A reload closes one and opens another a second later, and dropping the
@@ -175,7 +178,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     if (action === "join") {
       const name = parseName(field(body, "name"));
       if (name === null) return send(response, 400, { error: "a name is needed" });
-      const joined = rooms.join(code, name, now, parseGear(field(body, "gear"), TIERS, WEAPONS));
+      const joined = rooms.join(code, name, now, parseGear(field(body, "gear"), TIERS, WEAPONS), options.reclaimAfterMs);
       if (!joined.ok) return send(response, 409, { error: why(joined.why) });
       announce(joined.value.room);
       const { room, seat } = joined.value;
@@ -207,9 +210,13 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
       case "state": {
         const state = parsePlayerState(body, id);
         if (state === null) return send(response, 400, { error: "that state does not parse" });
+        const already = rooms.get(code)?.seats.get(id)?.dead === true;
         const reported = rooms.report(code, id, token, state, now);
         if (!reported.ok) return send(response, 403, { error: why(reported.why) });
         dirty.add(code);
+        // A death is roster news, not just another frame: it is what takes someone off the boss and out of the
+        // list, and the client that died has stopped ticking and will not be saying it twice.
+        if (state.dead && !already) announce(reported.value);
         return send(response, 200, { ok: true });
       }
       case "intent": {

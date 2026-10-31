@@ -6,7 +6,7 @@
  * which is what stops two machines disagreeing about who is still alive.
  */
 import type { RoomClient } from "./client";
-import type { Authority, Member, PlayerId, PlayerState, Style } from "./protocol";
+import type { Authority, Member, PlayerId, Style, Worn } from "./protocol";
 import { RemoteCrowd } from "./RemotePlayer";
 import type { Dresser, Known } from "./RemotePlayer";
 import type { RemotePlayer } from "./RemotePlayer";
@@ -16,6 +16,7 @@ export type LocalView = Readonly<{
   hp: number;
   maxHp: number;
   prayer: Style | null;
+  worn: Worn | null;
 }>;
 
 /** What the session needs of the running fight, kept narrow so it can be driven by a fake in a test. */
@@ -53,7 +54,6 @@ export function nextTarget(roster: readonly Member[], current: PlayerId | null):
 export class MultiplayerSession {
   private readonly crowd: RemoteCrowd;
   private stop: (() => void) | null = null;
-  private pending: readonly PlayerState[] = [];
   private spectating: Spectating = { dead: false, watching: null };
   private target: PlayerId | null = null;
   private readonly watchers = new Set<() => void>();
@@ -94,9 +94,9 @@ export class MultiplayerSession {
   /** Starts reporting and listening. Returns a teardown for when the fight or the page ends. */
   begin(): () => void {
     this.client.on({
-      states: (states) => {
-        this.pending = states;
-      },
+      // Applied the moment it lands rather than at the next tick: two batches can arrive between two ticks, and the
+      // one that waited would be dropped, which is a tile of someone's walk gone and a figure that jumps for it.
+      states: (states) => this.crowd.apply(states, this.known()),
       authority: (authority) => this.takeAuthority(authority),
       intent: () => {},
       ended: () => this.end(),
@@ -119,7 +119,7 @@ export class MultiplayerSession {
   }
 
   private known(): ReadonlyMap<PlayerId, Known> {
-    return new Map(this.roster().map((member) => [member.id, { name: member.name, gear: member.gear }]));
+    return new Map(this.roster().map((member) => [member.id, { name: member.name, gear: member.gear, dead: member.dead }]));
   }
 
   private tick(): void {
@@ -129,12 +129,9 @@ export class MultiplayerSession {
     // Your own fight can kill you without the room saying so, so falling to 0 here is a death like any other.
     if (local !== null && local.hp <= 0) this.die();
 
-    if (local !== null) {
-      this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead });
-    }
+    if (local !== null) this.report(at, local);
 
-    this.crowd.apply(this.pending, this.known());
-    this.crowd.retain(new Set(this.roster().map((member) => member.id)));
+    this.crowd.sync(this.known());
 
     if (this.client.isHost()) this.judge(at, local);
     this.follow();
@@ -188,11 +185,19 @@ export class MultiplayerSession {
     if (authority.deaths.includes(me) && !this.spectating.dead) this.die();
   }
 
+  private report(at: number, local: LocalView): void {
+    this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead, worn: local.worn });
+  }
+
   /** Called by the page when the local fight killed this player, and by the host's verdict for a guest. */
   die(): void {
     if (this.spectating.dead) return;
     this.spectating = { dead: true, watching: null };
     this.ports.kill();
+    // Death ends the run, and an ended run stops ticking, so the tick that would have carried the news never comes.
+    // Said here instead, or the others keep a figure of this player standing in their fight for the rest of it.
+    const local = this.ports.local();
+    if (local !== null) this.report(this.ports.tickNow(), local);
     this.follow();
     this.changed();
   }

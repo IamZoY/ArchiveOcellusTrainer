@@ -281,6 +281,64 @@ describe("ready and start", () => {
   });
 });
 
+describe("a death", () => {
+  it("reaches the other roster at once, so the dead leave the list and the boss moves on", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    const stream = await listen(host);
+    await stream.next("welcome");
+    const before = stream.count();
+
+    const died = await post(`/mp/rooms/${host.code}/state`, { playerId: guest.playerId, token: guest.token, tick: 9, tile: { x: 1, y: 1 }, hp: 0, maxHp: 99, dead: true });
+    expect(died.status).toBe(200);
+
+    const roster = await stream.next("roster", before);
+    expect(roster.roster.find((member) => member.name === "Ziad")?.dead).toBe(true);
+    stream.close();
+  }, 10000);
+});
+
+describe("coming back to a fight already under way", () => {
+  it("says in the welcome that the fight is on, and sends no start to a stream that opens late", async () => {
+    const host = await open("Zoy");
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: host.playerId, token: host.token, ready: true });
+    const first = await listen(host);
+    await first.next("welcome");
+    expect((await post(`/mp/rooms/${host.code}/start`, { playerId: host.playerId, token: host.token })).status).toBe(200);
+    await first.next("start");
+
+    const late = await join(host.code, "Ziad");
+    const stream = await listen(late);
+    const welcome = await stream.next("welcome");
+    expect(welcome.started).toBe(true);
+    // Nothing to join halfway: the fight runs off its seed from tick one, so a late stream is told to wait.
+    await expect(stream.next("start")).rejects.toThrow("no start frame arrived");
+    first.close();
+    stream.close();
+  }, 10000);
+
+  it("hands a seat back to the same name once it has gone quiet, host seat and ready and all", async () => {
+    const brisk = createRoomServer("dist", { heartbeatMs: 25, reclaimAfterMs: 40 });
+    await new Promise<void>((done) => brisk.server.listen(0, "127.0.0.1", done));
+    const address = brisk.server.address();
+    const briskPort = typeof address === "object" && address !== null ? (address as AddressInfo).port : 0;
+
+    const opened = await sendTo(briskPort, "POST", "/mp/rooms", { name: "Zoy", seed: 1, startPhase: 1 });
+    const seat = JSON.parse(opened.body) as Seat;
+    await sendTo(briskPort, "POST", `/mp/rooms/${seat.code}/ready`, { playerId: seat.playerId, token: seat.token, ready: true });
+    expect((await sendTo(briskPort, "POST", `/mp/rooms/${seat.code}/start`, { playerId: seat.playerId, token: seat.token })).status).toBe(200);
+
+    // The browser went away without saying so, which is what a crash, a closed window or a restart looks like.
+    await new Promise((done) => setTimeout(done, 200));
+    const back = await sendTo(briskPort, "POST", `/mp/rooms/${seat.code}/join`, { name: "zoy" });
+    expect(back.status).toBe(200);
+    const returned = JSON.parse(back.body) as Seat;
+    expect(returned.playerId).toBe(seat.playerId);
+    expect(returned.token).not.toBe(seat.token);
+    brisk.stop();
+  }, 10000);
+});
+
 describe("gear", () => {
   it("carries what each player is wearing to the other client's roster", async () => {
     const host = await open("Zoy");

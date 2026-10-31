@@ -26,9 +26,11 @@ npm start                       # http://127.0.0.1:8002
 Several people can train one fight together. One of you hosts: **Co-op** in the side panel gives a six-letter code,
 and everyone else types it in or opens the link, which carries `?room=CODE`. When all are ready the host starts, and
 every client runs that fight from the host's seed, so the boss's timings, cracks, rifts and explosions are the same
-for everyone. You see each other walk, pray and take damage live, each in their own gear, and a player who dies keeps watching
-someone who is still up. Gear travels as a tier name rather than an item list, so each client dresses the others from
-its own catalog; a tier changed in the Loadout editor shows others the tier it started from, marked with a star.
+for everyone. You see each other walk, pray and take damage live, each in their own gear, and a player who dies leaves
+the arena and keeps watching someone who is still up. Gear travels as names and item ids rather than a wardrobe: the
+tier each player picked dresses them until their first report lands, after which every client builds what they have
+on from its own catalog, so a swap mid-fight shows up on everyone's screen. A tier changed in the Loadout editor shows
+others the tier it started from, marked with a star.
 
 The boss is on one person at a time. Every client points its fight at whoever the room agreed the boss is on, so the
 damage lands on that person's machine and on nobody else's; the host is the one that says who that is and what each
@@ -36,7 +38,12 @@ hit did. A guest that opened the page on a different seed reloads onto the host'
 
 **Run it again** puts the team back in the lobby with everyone still ready, so the next attempt is one click for the
 host and none for anyone else. A room holds one of each name, and a seat survives a reload or a dropped connection
-for 45 seconds, so coming back lands you in your own seat rather than a new one.
+for 45 seconds, so coming back lands you in your own seat rather than a new one; a seat nobody has answered for in
+twelve seconds goes back to whoever gives that name, which is how a crash or a closed browser returns as itself.
+
+Nobody joins a fight halfway, because every client runs it from its seed from the first tick. A code typed while a
+fight is on takes a seat for the next run and waits in the lobby, and the host's **Restart the fight** starts that
+run for the whole room.
 
 The room server carries the words between machines and holds no fight of its own. It serves the built site too, so a
 VPS needs one process:

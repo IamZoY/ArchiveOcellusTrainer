@@ -4,8 +4,9 @@ import { CoopPanel, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby
 import { RemotePlayer } from "../../../multiplayer/RemotePlayer";
 import { useCoop } from "../../../multiplayer/useCoop";
 import type { FightBridge } from "../../../multiplayer/useCoop";
-import { CacheRender, TrainerInstance, Viewport } from "osrs-sdk";
-import type { Location3, Region, TrainerLoadingState } from "osrs-sdk";
+import type { Worn } from "../../../multiplayer/protocol";
+import { CacheRender, TrainerInstance, Viewport, dressPlayer, parseLoadout } from "osrs-sdk";
+import type { EquipmentSlot, Location3, Region, TrainerLoadingState } from "osrs-sdk";
 import { GameOverlay, RuneScapeButton, TrainerApp } from "osrs-sdk-react";
 import { loadFixedFrame } from "../../../fixedFrame";
 import { readSettings, RunGate, RunPauseButton } from "../../../runGate";
@@ -18,7 +19,7 @@ import type { CreditLink } from "../../../menu/credits";
 import { CONTRIBUTOR, MAKER_LINKS } from "../../../menu/credits";
 import Sidebar from "../../../menu/Sidebar";
 import { dressStartedFight } from "../fight/blowpipe";
-import { GEAR_SCOPES, OCELLUS_PRESETS, TierLoadouts, parseTier, presetChoice, startingLoadout, tierStart, tierStarts } from "../js/OcellusLoadout";
+import { GEAR_SCOPES, OCELLUS_LOADOUTS, OCELLUS_PRESETS, TierLoadouts, loadoutSnapshot, parseTier, presetChoice, startingLoadout, tierStart, tierStarts } from "../js/OcellusLoadout";
 import type { StartWeapon, Tier, TierItem } from "../js/OcellusTimings";
 import { START_WEAPONS, TIERS } from "../js/OcellusTimings";
 import { LoadoutSection, useTierLoadout } from "./loadout";
@@ -759,10 +760,7 @@ function outcomeOf(stage: Stage | null): "running" | "won" | "lost" {
 }
 
 function exposeProbe(trainer: TrainerInstance, region: FightRegion): void {
-  const player = () => {
-    const first = region.players[0];
-    return first instanceof FightPlayer ? first : null;
-  };
+  const player = () => mine(region);
   const others = () =>
     region.players.flatMap((unit) =>
       unit instanceof RemotePlayer
@@ -774,6 +772,8 @@ function exposeProbe(trainer: TrainerInstance, region: FightRegion): void {
             maxHp: unit.stats.hitpoint,
             weapon: unit.equipment.weapon?.itemName ?? null,
             worn: Object.values(unit.equipment).filter((piece) => piece !== undefined && piece !== null).length,
+            // What is actually drawn over their head, rather than what they reported, which is the thing worth pinning.
+            overhead: unit.prayerController.overhead()?.name ?? null,
           }]
         : [],
     );
@@ -805,6 +805,12 @@ function exposeProbe(trainer: TrainerInstance, region: FightRegion): void {
         chat: region.chat().slice(-6).map((line) => line.text),
       };
     },
+    // The page runs its fight on animation frames, which a window that is not on screen does not get. This drives
+    // the world by hand so a second machine's figure can be watched walking, praying and dying without one.
+    pump: (ticks: number) => {
+      for (let step = 0; step < ticks; step++) trainer.world.tickWorld();
+      return trainer.world.globalTickCounter;
+    },
     tileCentre: (at) => Viewport.viewport.projectTile(toSdk(at), trainer.getSnapshot().world),
     die: () => {
       const stage = stageOf(region);
@@ -829,6 +835,44 @@ function exposeProbe(trainer: TrainerInstance, region: FightRegion): void {
   });
 }
 
+/**
+ * This client's own player, picked out by what it is rather than by where it sits in the region. The world drops a
+ * player it has seen die, and a friend's puppet is a player too: take the first one and a dead player starts
+ * reporting their friend's position as their own, which on every other screen is their body trailing that friend
+ * around the arena.
+ */
+function mine(region: FightRegion): FightPlayer | null {
+  return region.players.find((unit): unit is FightPlayer => unit instanceof FightPlayer) ?? null;
+}
+
+/** Every slot empty, so a report that names only a weapon still dresses a whole body rather than being refused. */
+const BARE: Readonly<Record<EquipmentSlot, number | null>> = {
+  weapon: null,
+  offhand: null,
+  helmet: null,
+  necklace: null,
+  chest: null,
+  legs: null,
+  feet: null,
+  gloves: null,
+  ring: null,
+  cape: null,
+  ammo: null,
+};
+
+const NO_INVENTORY: readonly null[] = Array.from({ length: 28 }, () => null);
+
+/** The ids this player has equipped, empty slots left out, which is what the room carries between machines. */
+function wornOf(player: Player | null): Worn | null {
+  if (player === null) return null;
+  const equipped = loadoutSnapshot(player).equipped;
+  const worn: Record<string, number> = {};
+  for (const [slot, id] of Object.entries(equipped)) {
+    if (id !== null) worn[slot] = id;
+  }
+  return Object.keys(worn).length === 0 ? null : worn;
+}
+
 export function FullFightPage() {
   const [{ trainer, region, params, clock, loadouts, started }] = useState(createTrainer);
   const [loading, setLoading] = useState<TrainerLoadingState>();
@@ -843,10 +887,16 @@ export function FullFightPage() {
     () => ({
       onTick: (listener) => region.onTick(listener),
       tickNow: () => region.world?.globalTickCounter ?? 0,
-      localPlayer: (): Player | null => region.players[0] ?? null,
-      protection: () => region.players[0]?.prayerController.matchFeature("melee") ? "melee" : region.players[0]?.prayerController.matchFeature("range") ? "ranged" : region.players[0]?.prayerController.matchFeature("magic") ? "magic" : null,
+      localPlayer: () => mine(region),
+      protection: () => {
+        const you = mine(region);
+        if (!you) return null;
+        if (you.prayerController.matchFeature("melee")) return "melee";
+        if (you.prayerController.matchFeature("range")) return "ranged";
+        return you.prayerController.matchFeature("magic") ? "magic" : null;
+      },
       aimAt: (unit) => region.aimAt(unit),
-      spawn: () => ({ x: region.players[0]?.location.x ?? 0, y: region.players[0]?.location.y ?? 0 }),
+      spawn: () => ({ x: mine(region)?.location.x ?? 0, y: mine(region)?.location.y ?? 0 }),
       region,
       seed: params.seed,
       startPhase: params.startPhase,
@@ -862,8 +912,17 @@ export function FullFightPage() {
         const active = loadouts.active();
         return { tier: active.preset.id, weapon: tierStart(active, params.weapon), edited: active.source === "edit" };
       },
-      // A friend's gear is named, not listed, so it is built here from this client's own catalog.
-      dress: (puppet, gear) => {
+      // What is actually on this player's back, which is not what they picked in the lobby once they swap mid-fight.
+      worn: () => wornOf(mine(region)),
+      // A friend's kit crosses as item ids, and is built here from this client's own catalog. The tier they named
+      // in the lobby dresses them until their first report lands, so nobody stands there naked while it does.
+      dress: (puppet, gear, worn) => {
+        const live = worn === null ? null : parseLoadout(OCELLUS_LOADOUTS.catalog, { equipment: { ...BARE, ...worn }, inventory: NO_INVENTORY });
+        if (live !== null && live.kind === "parsed") {
+          dressPlayer(puppet, live.loadout);
+          puppet.equipmentChanged();
+          return;
+        }
         const tier = parseTier(gear?.tier ?? null);
         const started = startingLoadout(presetChoice(tier), gear?.weapon ?? null);
         dressStartedFight(puppet, started.loadout);

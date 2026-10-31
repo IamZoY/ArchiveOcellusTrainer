@@ -8,18 +8,23 @@ import type { Gear, Member, PlayerId } from "./protocol";
 import { CODE_LENGTH, isRoomCode } from "./protocol";
 
 export const LOBBY_CSS = `
-#coop_panel { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+#coop_panel { display: flex; flex-direction: column; gap: 7px; font-size: 13px; line-height: 1.35; }
 #coop_panel .coop-row { display: flex; gap: 6px; align-items: center; }
-#coop_panel input { flex: 1; min-width: 0; padding: 3px 5px; font: inherit; text-transform: uppercase; }
+#coop_panel input { flex: 1; min-width: 0; padding: 6px 8px; font: inherit; text-transform: uppercase; }
 #coop_panel input.coop-name { text-transform: none; }
-#coop_panel button { padding: 3px 8px; font: inherit; cursor: pointer; }
-#coop_panel .coop-code { font-size: 20px; letter-spacing: 5px; font-weight: bold; text-align: center; padding: 4px; user-select: all; }
-#coop_panel .coop-hint { opacity: 0.75; }
-#coop_panel .coop-error { color: #ff6b6b; }
-#coop_panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-#coop_panel li { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
-#coop_panel li .coop-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#coop_panel .coop-tag { font-size: 10px; padding: 0 4px; border-radius: 3px; background: rgba(255,255,255,0.15); }
+/* The sidebar is narrow, so these take a line of their own at a size a glance can find and a cursor can hit. */
+#coop_panel button { display: block; width: 100%; min-height: 30px; padding: 7px 10px; font: inherit; cursor: pointer; }
+#coop_panel .coop-row button { width: auto; flex: 0 0 auto; }
+#coop_panel button:disabled { cursor: default; opacity: 0.55; }
+#coop_panel .coop-code { font-size: 23px; letter-spacing: 5px; font-weight: bold; text-align: center; padding: 5px 2px; user-select: all; }
+#coop_panel .coop-hint { opacity: 0.75; margin: 0; }
+#coop_panel .coop-error { color: #ff6b6b; margin: 0; }
+#coop_panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+/* Name on its own line, tags under it: side by side they shred into stacks of two letters in a panel this narrow. */
+#coop_panel li { display: flex; flex-direction: column; gap: 2px; }
+#coop_panel li .coop-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: bold; }
+#coop_panel .coop-tags { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+#coop_panel .coop-tag { font-size: 11px; white-space: nowrap; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.15); }
 #coop_panel .coop-ready { color: #7bd87b; }
 #coop_panel .coop-waiting { opacity: 0.6; }
 #coop_panel .coop-dead { opacity: 0.5; text-decoration: line-through; }
@@ -82,7 +87,7 @@ function Roster({ roster, you, targetId }: Readonly<{ roster: readonly Member[];
             {member.name}
             {member.id === you ? " (you)" : ""}
           </span>
-          <span className="coop-row">
+          <span className="coop-tags">
             {member.gear !== null && <span className="coop-tag coop-gear">{member.gear.edited ? `${member.gear.tier}*` : member.gear.tier}</span>}
             {member.id === targetId && !member.dead && <span className="coop-tag coop-target">boss</span>}
             {member.host && <span className="coop-tag">host</span>}
@@ -171,7 +176,7 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
           <div className="coop-code" id="coop_code">
             {phase.connection.code}
           </div>
-          <p className="coop-hint">Give these six letters to your friends.</p>
+          <p className="coop-hint">{phase.running ? "That fight is already under way." : "Give these six letters to your friends."}</p>
           <Roster roster={everyone} you={phase.connection.you} targetId={null} />
           <button
             type="button"
@@ -184,12 +189,19 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
           >
             {ready ? "Not ready" : "Ready"}
           </button>
-          {phase.connection.host && (
+          {/* A fight runs off its seed from tick one, so nobody joins one halfway. Starting it over is the way in. */}
+          {phase.running && phase.connection.host && (
+            <button type="button" id="coop_restart" onClick={() => client.again()}>
+              Restart the fight
+            </button>
+          )}
+          {phase.running && !phase.connection.host && <p className="coop-hint">You are in from the next run; the host can start it over.</p>}
+          {!phase.running && phase.connection.host && (
             <button type="button" id="coop_start" disabled={!allReady} onClick={() => client.start()}>
               {allReady ? "Start the fight" : "Waiting for everyone"}
             </button>
           )}
-          {!phase.connection.host && <p className="coop-hint">The host starts the fight.</p>}
+          {!phase.running && !phase.connection.host && <p className="coop-hint">The host starts the fight.</p>}
           <button type="button" onClick={() => { putCodeInUrl(null); client.leave(); }}>
             Leave
           </button>

@@ -4,7 +4,7 @@
  * It holds no opinion about the fight. The page asks it to open or join a room, reads the roster off it, and pushes
  * this player's state at it each tick; what arrives from the stream is handed on as plain data for the page to apply.
  */
-import type { Authority, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style } from "./protocol";
+import type { Authority, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style, Worn } from "./protocol";
 import { EVENT_KINDS } from "./protocol";
 
 export type Connection = Readonly<{
@@ -19,7 +19,8 @@ export type Connection = Readonly<{
 export type Phase =
   | Readonly<{ kind: "offline" }>
   | Readonly<{ kind: "connecting" }>
-  | Readonly<{ kind: "lobby"; connection: Connection; roster: Roster }>
+  /** `running` means the room's fight is already under way and this client is waiting out the rest of it. */
+  | Readonly<{ kind: "lobby"; connection: Connection; roster: Roster; running: boolean }>
   | Readonly<{ kind: "fighting"; connection: Connection; roster: Roster; startedAt: number }>
   | Readonly<{ kind: "failed"; error: string }>;
 
@@ -32,7 +33,7 @@ export type Handlers = Readonly<{
   regroup(run: number): void;
 }>;
 
-export type Report = Readonly<{ tick: number; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; prayer: Style | null; dead: boolean }>;
+export type Report = Readonly<{ tick: number; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; prayer: Style | null; dead: boolean; worn: Worn | null }>;
 
 const NO_HANDLERS: Handlers = { states: () => {}, authority: () => {}, intent: () => {}, ended: () => {}, regroup: () => {} };
 
@@ -94,6 +95,8 @@ export class RoomClient {
   private connection: Connection | null = null;
   private current: Phase = { kind: "offline" };
   private roster: Roster = [];
+  /** The room is mid-fight without this client in it, which is how a lobby tells waiting from gathering. */
+  private running = false;
   private handlers: Handlers = NO_HANDLERS;
   private readonly watchers = new Set<() => void>();
   /** The last report that actually went out, so an unchanged tick costs no request. */
@@ -188,15 +191,17 @@ export class RoomClient {
         this.connection = settled;
         rememberSeat(settled);
         this.roster = event.roster;
-        this.set({ kind: "lobby", connection: settled, roster: event.roster });
+        this.running = event.started;
+        this.set({ kind: "lobby", connection: settled, roster: event.roster, running: event.started });
         return;
       }
       case "roster": {
         this.roster = event.roster;
-        this.set(this.current.kind === "fighting" ? { ...this.current, roster: event.roster } : { kind: "lobby", connection, roster: event.roster });
+        this.set(this.current.kind === "fighting" ? { ...this.current, roster: event.roster } : { kind: "lobby", connection, roster: event.roster, running: this.running });
         return;
       }
       case "start":
+        this.running = false;
         this.set({ kind: "fighting", connection, roster: this.roster, startedAt: event.at });
         return;
       case "states":
@@ -209,12 +214,14 @@ export class RoomClient {
         this.handlers.intent(event.from, event.intent);
         return;
       case "regroup":
+        this.running = false;
         this.handlers.regroup(event.run);
-        this.set({ kind: "lobby", connection, roster: this.roster });
+        this.set({ kind: "lobby", connection, roster: this.roster, running: false });
         return;
       case "ended":
+        this.running = false;
         this.handlers.ended(event.reason);
-        this.set({ kind: "lobby", connection, roster: this.roster });
+        this.set({ kind: "lobby", connection, roster: this.roster, running: false });
         return;
       case "ping":
         return;
@@ -250,7 +257,8 @@ export class RoomClient {
 
   /** Reporting the same thing twice in a row says nothing, so it is not sent. */
   report(report: Report): void {
-    const key = `${report.tick}:${report.tile.x},${report.tile.y}:${report.hp}:${report.prayer ?? "-"}:${report.dead}`;
+    const worn = report.worn === null ? "-" : Object.keys(report.worn).sort().map((slot) => `${slot}${report.worn?.[slot] ?? ""}`).join();
+    const key = `${report.tick}:${report.tile.x},${report.tile.y}:${report.hp}:${report.prayer ?? "-"}:${report.dead}:${worn}`;
     if (key === this.sent) return;
     this.sent = key;
     this.post("/state", { ...report });
@@ -284,6 +292,7 @@ export class RoomClient {
     this.stream = null;
     this.connection = null;
     this.roster = [];
+    this.running = false;
     this.set({ kind: "offline" });
   }
 

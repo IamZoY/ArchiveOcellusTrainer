@@ -11,6 +11,8 @@ export const CODE_LENGTH = 6;
 
 export const MAX_PLAYERS = 8;
 export const NAME_MAX = 12;
+/** A body has eleven worn slots; the cap is what keeps a made-up one from growing the frame. */
+export const WORN_SLOTS = 16;
 
 /**
  * A seat with no stream is held this long before the room gives it up. It has to outlast a page reload, which for
@@ -20,6 +22,12 @@ export const NAME_MAX = 12;
 export const STALE_MS = 45_000;
 /** The server tells every stream to keep itself open this often, which also evicts dead connections. */
 export const HEARTBEAT_MS = 5_000;
+/**
+ * A seat this quiet is taken to be gone, and the same name may have it back. It is a few heartbeats, so a seat with
+ * anyone actually behind it is never handed over, and a page that reloaded, crashed or was closed is not held to a
+ * name its owner cannot use again.
+ */
+export const RECLAIM_AFTER_MS = 12_000;
 
 export type PlayerId = string;
 export type RoomCode = string;
@@ -27,6 +35,12 @@ export type RoomCode = string;
 export type Style = "melee" | "ranged" | "magic";
 
 export type WireTile = Readonly<{ x: number; y: number }>;
+
+/**
+ * What a player has on, by item id, slot by slot. A swap mid-fight is a change of ids, so sending these is what lets
+ * everyone else watch the switch happen rather than see the kit someone started in. An empty slot is left out.
+ */
+export type Worn = Readonly<Record<string, number>>;
 
 /** What one player looks like to everyone else on a given fight tick. */
 export type PlayerState = Readonly<{
@@ -37,6 +51,7 @@ export type PlayerState = Readonly<{
   maxHp: number;
   prayer: Style | null;
   dead: boolean;
+  worn: Worn | null;
 }>;
 
 /**
@@ -71,7 +86,7 @@ export type Intent =
   | Readonly<{ kind: "prayer"; prayer: Style | null }>;
 
 export type ServerEvent =
-  | Readonly<{ kind: "welcome"; you: PlayerId; code: RoomCode; seed: number; startPhase: number; roster: Roster }>
+  | Readonly<{ kind: "welcome"; you: PlayerId; code: RoomCode; seed: number; startPhase: number; roster: Roster; started: boolean }>
   | Readonly<{ kind: "roster"; roster: Roster }>
   | Readonly<{ kind: "start"; seed: number; startPhase: number; at: number; run: number }>
   | Readonly<{ kind: "regroup"; run: number }>
@@ -134,13 +149,25 @@ export function parseTile(raw: unknown): WireTile | null {
   return { x, y };
 }
 
+/** Slots this build does not know are dropped rather than refused, so an older friend still shows up dressed. */
+export function parseWorn(raw: unknown): Worn | null {
+  if (!isRecord(raw)) return null;
+  const worn: Record<string, number> = {};
+  for (const [slot, value] of Object.entries(raw).slice(0, WORN_SLOTS)) {
+    const id = count(value);
+    if (id !== null && /^[a-z]{1,16}$/iu.test(slot)) worn[slot] = id;
+  }
+  return Object.keys(worn).length === 0 ? null : worn;
+}
+
 export function parsePlayerState(raw: unknown, id: PlayerId): PlayerState | null {
   const at = count(field(raw, "tick"));
   const tile = parseTile(field(raw, "tile"));
   const hp = count(field(raw, "hp"));
   const maxHp = count(field(raw, "maxHp"));
   if (at === null || tile === null || hp === null || maxHp === null || maxHp === 0) return null;
-  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer: parseStyle(field(raw, "prayer")), dead: field(raw, "dead") === true };
+  const prayer = parseStyle(field(raw, "prayer"));
+  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer, dead: field(raw, "dead") === true, worn: parseWorn(field(raw, "worn")) };
 }
 
 export function parseIntent(raw: unknown): Intent | null {
