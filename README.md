@@ -26,8 +26,9 @@ npm start                       # http://127.0.0.1:8002
 Several people can train one fight together. One of you hosts: **Co-op** in the side panel gives a six-letter code,
 and everyone else types it in or opens the link, which carries `?room=CODE`. When all are ready the host starts, and
 every client runs that fight from the host's seed, so the boss's timings, cracks, rifts and explosions are the same
-for everyone. You see each other walk, pray and take damage live, and a player who dies keeps watching someone who
-is still up.
+for everyone. You see each other walk, pray and take damage live, each in their own gear, and a player who dies keeps watching
+someone who is still up. Gear travels as a tier name rather than an item list, so each client dresses the others from
+its own catalog; a tier changed in the Loadout editor shows others the tier it started from, marked with a star.
 
 The boss is on one person at a time. Every client points its fight at whoever the room agreed the boss is on, so the
 damage lands on that person's machine and on nobody else's; the host is the one that says who that is and what each

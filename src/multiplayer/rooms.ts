@@ -2,7 +2,7 @@
  * Every rule a room has, with no HTTP and no clock of its own: the server passes the time in and sends what comes
  * back. That keeps the rules testable without a socket, and keeps the transport free of decisions.
  */
-import type { Authority, Intent, Member, PlayerId, PlayerState, RoomCode, Roster, ServerEvent } from "./protocol";
+import type { Authority, Gear, Intent, Member, PlayerId, PlayerState, RoomCode, Roster, ServerEvent } from "./protocol";
 import { CODE_ALPHABET, CODE_LENGTH, MAX_PLAYERS, STALE_MS } from "./protocol";
 
 export type Rejection =
@@ -46,6 +46,7 @@ type Seat = {
   readonly id: PlayerId;
   readonly token: string;
   readonly name: string;
+  gear: Gear | null;
   ready: boolean;
   dead: boolean;
   seenAt: number;
@@ -86,28 +87,28 @@ export class Rooms {
     throw new Error("could not find a free room code");
   }
 
-  open(hostName: string, seed: number, startPhase: number, now: number): Readonly<{ room: Room; seat: Seat }> {
+  open(hostName: string, seed: number, startPhase: number, now: number, gear: Gear | null = null): Readonly<{ room: Room; seat: Seat }> {
     const code = this.freeCode();
-    const seat = this.seat(hostName, now);
+    const seat = this.seat(hostName, now, gear);
     const room: Room = { code, seed, startPhase, hostId: seat.id, started: false, startedAt: null, seats: new Map([[seat.id, seat]]) };
     this.rooms.set(code, room);
     return { room, seat };
   }
 
-  private seat(name: string, now: number): Seat {
-    return { id: this.random.id(), token: this.random.id(), name, ready: false, dead: false, seenAt: now, state: null };
+  private seat(name: string, now: number, gear: Gear | null): Seat {
+    return { id: this.random.id(), token: this.random.id(), name, gear, ready: false, dead: false, seenAt: now, state: null };
   }
 
   get(code: RoomCode): Room | null {
     return this.rooms.get(code) ?? null;
   }
 
-  join(code: RoomCode, name: string, now: number): Outcome<Readonly<{ room: Room; seat: Seat }>> {
+  join(code: RoomCode, name: string, now: number, gear: Gear | null = null): Outcome<Readonly<{ room: Room; seat: Seat }>> {
     const room = this.rooms.get(code);
     if (!room) return no({ kind: "no-room" });
     if (room.started) return no({ kind: "already-started" });
     if (room.seats.size >= MAX_PLAYERS) return no({ kind: "full" });
-    const seat = this.seat(name, now);
+    const seat = this.seat(name, now, gear);
     room.seats.set(seat.id, seat);
     return ok({ room, seat });
   }
@@ -126,6 +127,15 @@ export class Rooms {
     const found = this.authorise(code, id, token);
     if (!found.ok) return found;
     found.value.seat.ready = ready;
+    found.value.seat.seenAt = now;
+    return ok(found.value.room);
+  }
+
+  /** Gear is chosen in the lobby, and a change reaches everyone through the roster. */
+  setGear(code: RoomCode, id: PlayerId, token: string, gear: Gear | null, now: number): Outcome<Room> {
+    const found = this.authorise(code, id, token);
+    if (!found.ok) return found;
+    found.value.seat.gear = gear;
     found.value.seat.seenAt = now;
     return ok(found.value.room);
   }
@@ -221,7 +231,7 @@ export class Rooms {
 }
 
 export function rosterOf(room: Room): Roster {
-  return [...room.seats.values()].map((seat): Member => ({ id: seat.id, name: seat.name, ready: seat.ready, host: seat.id === room.hostId, dead: seat.dead }));
+  return [...room.seats.values()].map((seat): Member => ({ id: seat.id, name: seat.name, ready: seat.ready, host: seat.id === room.hostId, dead: seat.dead, gear: seat.gear }));
 }
 
 /** Everyone's latest report, newest wins, with the reporter's own left out by the caller if it wants. */

@@ -8,6 +8,7 @@
 import type { RoomClient } from "./client";
 import type { Authority, Member, PlayerId, PlayerState, Style } from "./protocol";
 import { RemoteCrowd } from "./RemotePlayer";
+import type { Dresser, Known } from "./RemotePlayer";
 import type { RemotePlayer } from "./RemotePlayer";
 
 export type LocalView = Readonly<{
@@ -28,6 +29,18 @@ export type FightPorts = Readonly<{
 }>;
 
 export type Spectating = Readonly<{ dead: boolean; watching: PlayerId | null }>;
+
+export type Standing = Readonly<{ id: PlayerId; dead: boolean }>;
+
+/**
+ * Who a dead player watches: whoever they are already on while that one lives, else the first still standing. Holding
+ * the current one matters, or the camera would hop every time the roster arrives in a different order.
+ */
+export function whoToWatch(watching: PlayerId | null, others: readonly Standing[]): PlayerId | null {
+  const current = others.find((other) => other.id === watching);
+  if (current !== undefined && !current.dead) return watching;
+  return others.find((other) => !other.dead)?.id ?? null;
+}
 
 /** How the host picks who the boss is on: the longest-standing living player, changing only when that one dies. */
 export function nextTarget(roster: readonly Member[], current: PlayerId | null): PlayerId | null {
@@ -52,8 +65,9 @@ export class MultiplayerSession {
     private readonly ports: FightPorts,
     region: ConstructorParameters<typeof RemoteCrowd>[0],
     spawn: ConstructorParameters<typeof RemoteCrowd>[1],
+    dress: Dresser = () => {},
   ) {
-    this.crowd = new RemoteCrowd(region, spawn);
+    this.crowd = new RemoteCrowd(region, spawn, dress);
   }
 
   subscribe(watcher: () => void): () => void {
@@ -104,20 +118,22 @@ export class MultiplayerSession {
     return phase.kind === "lobby" || phase.kind === "fighting" ? phase.roster : [];
   }
 
-  private names(): ReadonlyMap<PlayerId, string> {
-    return new Map(this.roster().map((member) => [member.id, member.name]));
+  private known(): ReadonlyMap<PlayerId, Known> {
+    return new Map(this.roster().map((member) => [member.id, { name: member.name, gear: member.gear }]));
   }
 
   private tick(): void {
     const at = this.ports.tickNow();
     const local = this.ports.local();
 
+    // Your own fight can kill you without the room saying so, so falling to 0 here is a death like any other.
+    if (local !== null && local.hp <= 0) this.die();
+
     if (local !== null) {
       this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead });
     }
 
-    const names = this.names();
-    this.crowd.apply(this.pending, names, at);
+    this.crowd.apply(this.pending, this.known());
     this.crowd.retain(new Set(this.roster().map((member) => member.id)));
 
     if (this.client.isHost()) this.judge(at, local);
@@ -184,10 +200,8 @@ export class MultiplayerSession {
   /** A dead player watches someone who is still up, and keeps watching until that one dies too. */
   private follow(): void {
     if (!this.spectating.dead) return;
-    const watched = this.spectating.watching === null ? null : this.crowd.get(this.spectating.watching);
-    if (watched !== null && !watched.state().dead) return;
-    const next = this.crowd.anyAlive();
-    const watching = next?.id ?? null;
+    const others = this.crowd.all().map((puppet): Standing => ({ id: puppet.id, dead: puppet.state().dead }));
+    const watching = whoToWatch(this.spectating.watching, others);
     if (watching === this.spectating.watching) return;
     this.spectating = { dead: true, watching };
     this.changed();

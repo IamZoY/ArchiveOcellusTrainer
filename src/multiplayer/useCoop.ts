@@ -13,7 +13,8 @@ import type { Connection } from "./client";
 import { MultiplayerSession } from "./session";
 import type { FightPorts, LocalView } from "./session";
 import { codeInUrl } from "./Lobby";
-import type { PlayerId, Style } from "./protocol";
+import type { Gear, PlayerId, Style } from "./protocol";
+import type { Dresser } from "./RemotePlayer";
 
 const NAME_KEY = "archive-ocellus-coop-name";
 
@@ -23,6 +24,11 @@ export type CoopHandle = Readonly<{
   targetId: PlayerId | null;
   dead: boolean;
   watchingName: string | null;
+  /**
+   * Dead while the fight is still on. The run's own result offers a restart that would leave the room behind, so it
+   * waits until the whole team is down, which is when the fight is really over.
+   */
+  spectating: boolean;
 }>;
 
 /** What the page must give the hook so it can watch and steer the fight. */
@@ -37,6 +43,11 @@ export type FightBridge = Readonly<{
   seed: number;
   startPhase: number;
   startFight(): void;
+  /** True once this client's own run has ended in a death. */
+  lost(): boolean;
+  /** What this player is wearing, and how to put someone else's on a puppet. */
+  gear(): Gear;
+  dress: Dresser;
 }>;
 
 function savedName(): string {
@@ -111,12 +122,18 @@ export function useCoop(bridge: FightBridge): CoopHandle {
         if (player) player.currentStats.hitpoint = Math.max(0, player.currentStats.hitpoint - amount);
       },
     };
-    const made = new MultiplayerSession(client, ports, bridge.region, bridge.spawn());
+    const made = new MultiplayerSession(client, ports, bridge.region, bridge.spawn(), bridge.dress);
     const stop = made.begin();
     setSession(made);
     const off = made.subscribe(() => bump((n) => n + 1));
+    // Dying ends the run, and an ended run stops ticking, so the fight's own clock cannot be what notices it.
+    const pulse = setInterval(() => {
+      const player = bridge.localPlayer();
+      if (bridge.lost() || (player !== null && player.currentStats.hitpoint <= 0)) made.die();
+    }, 250);
     bridge.startFight();
     return () => {
+      clearInterval(pulse);
       off();
       stop();
       bridge.aimAt(null);
@@ -140,5 +157,6 @@ export function useCoop(bridge: FightBridge): CoopHandle {
   const roster = phase.kind === "lobby" || phase.kind === "fighting" ? phase.roster : [];
   const watchingName = view.watching === null ? null : roster.find((member) => member.id === view.watching)?.name ?? null;
 
-  return { client, session, targetId, dead: view.dead, watchingName };
+  const allDown = roster.length > 0 && roster.every((member) => member.dead);
+  return { client, session, targetId, dead: view.dead, watchingName, spectating: view.dead && !allDown };
 }

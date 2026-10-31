@@ -3,7 +3,7 @@ import { loadPage } from "./page";
 const SEEN_RELEASE_KEY = "archive-ocellus:seen-release";
 const SHOWN_VERSIONS = ["2026.10.31", "2026.10.29", "2026.10.28", "2026.10.27", "2026.10.26.2"];
 const COOP_NOTE =
-  "You see each other walk, pray and take damage as it happens, with each player's health above them. The boss is on one of you at a time, marked beside that person's name in the Co-op list, and only that person takes its hits. If you die you keep watching whoever is still standing, as in game.";
+  "You see each other walk, pray and take damage as it happens, each in their own gear with their health above them. Everyone picks their own tier, shown beside their name. The boss is on one of you at a time, marked in the Co-op list, and only that person takes its hits. If you die you keep watching whoever is still standing, as in game.";
 
 const NEXT_RELEASE = {
   version: "2026.10.29",

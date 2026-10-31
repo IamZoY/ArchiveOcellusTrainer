@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { Player } from "osrs-sdk";
 import { CoopPanel, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby";
+import { RemotePlayer } from "../../../multiplayer/RemotePlayer";
 import { useCoop } from "../../../multiplayer/useCoop";
 import type { FightBridge } from "../../../multiplayer/useCoop";
 import { CacheRender, TrainerInstance, Viewport } from "osrs-sdk";
@@ -17,7 +18,7 @@ import type { CreditLink } from "../../../menu/credits";
 import { CONTRIBUTOR, MAKER_LINKS } from "../../../menu/credits";
 import Sidebar from "../../../menu/Sidebar";
 import { dressStartedFight } from "../fight/blowpipe";
-import { GEAR_SCOPES, OCELLUS_PRESETS, TierLoadouts, parseTier, startingLoadout, tierStart, tierStarts } from "../js/OcellusLoadout";
+import { GEAR_SCOPES, OCELLUS_PRESETS, TierLoadouts, parseTier, presetChoice, startingLoadout, tierStart, tierStarts } from "../js/OcellusLoadout";
 import type { StartWeapon, Tier, TierItem } from "../js/OcellusTimings";
 import { START_WEAPONS, TIERS } from "../js/OcellusTimings";
 import { LoadoutSection, useTierLoadout } from "./loadout";
@@ -56,6 +57,8 @@ declare global {
       place(at: ATile): void;
       /** Where this frame draws him and the player, for a capture that times their movement frame by frame. */
       drawn(): Drawn;
+      /** Everyone else in a shared fight, as this client has them: their place, health and what they are wearing. */
+      others(): readonly Readonly<{ id: string; name: string; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; weapon: string | null; worn: number }>[];
     }>;
   }
 }
@@ -760,7 +763,22 @@ function exposeProbe(trainer: TrainerInstance, region: FightRegion): void {
     const first = region.players[0];
     return first instanceof FightPlayer ? first : null;
   };
+  const others = () =>
+    region.players.flatMap((unit) =>
+      unit instanceof RemotePlayer
+        ? [{
+            id: unit.id,
+            name: unit.displayName,
+            tile: { x: unit.location.x, y: unit.location.y },
+            hp: unit.currentStats.hitpoint,
+            maxHp: unit.stats.hitpoint,
+            weapon: unit.equipment.weapon?.itemName ?? null,
+            worn: Object.values(unit.equipment).filter((piece) => piece !== undefined && piece !== null).length,
+          }]
+        : [],
+    );
   window.__fullFightProbe = Object.freeze({
+    others,
     snapshot(): FullFightSnapshot {
       const stage = stageOf(region);
       const p4 = stage?.phase === "p4" ? stage.p4 : null;
@@ -835,8 +853,23 @@ export function FullFightPage() {
       startFight: () => {
         if (clock.state().kind === "set-up") clock.start();
       },
+      // The run's own ending is the death signal: a death stops the clock, and practice mode leaves hp above 0.
+      lost: () => {
+        const at = stageOf(region);
+        return at !== null && endingOf(at)?.won === false;
+      },
+      gear: () => {
+        const active = loadouts.active();
+        return { tier: active.preset.id, weapon: tierStart(active, params.weapon), edited: active.source === "edit" };
+      },
+      // A friend's gear is named, not listed, so it is built here from this client's own catalog.
+      dress: (puppet, gear) => {
+        const tier = parseTier(gear?.tier ?? null);
+        const started = startingLoadout(presetChoice(tier), gear?.weapon ?? null);
+        dressStartedFight(puppet, started.loadout);
+      },
     }),
-    [region, params.seed, params.startPhase, clock],
+    [region, params.seed, params.startPhase, params.weapon, clock, loadouts],
   );
   const coop = useCoop(bridge);
   const inRoom = coop.client.phase().kind === "lobby" || coop.client.phase().kind === "fighting";
@@ -880,7 +913,7 @@ ${LOBBY_CSS}`;
         <div id="hud_corner">
           <Chatbox stage={stage} region={region} />
         </div>
-        {stage && <Result stage={stage} region={region} params={params} clock={clock} />}
+        {stage && !coop.spectating && <Result stage={stage} region={region} params={params} clock={clock} />}
         {coop.dead && <SpectateBanner watching={coop.watchingName} />}
         {!ended && !inRoom && <RunGate clock={clock} ready={ready} />}
       </GameOverlay>
@@ -890,7 +923,7 @@ ${LOBBY_CSS}`;
         stage={stage}
         clock={clock}
         loadouts={loadouts}
-        coop={<CoopPanel client={coop.client} seed={params.seed} startPhase={params.startPhase} targetId={coop.targetId} />}
+        coop={<CoopPanel client={coop.client} seed={params.seed} startPhase={params.startPhase} targetId={coop.targetId} gear={bridge.gear()} />}
       />
     </TrainerApp>
   );

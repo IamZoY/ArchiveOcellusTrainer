@@ -4,7 +4,7 @@
  * It holds no opinion about the fight. The page asks it to open or join a room, reads the roster off it, and pushes
  * this player's state at it each tick; what arrives from the stream is handed on as plain data for the page to apply.
  */
-import type { Authority, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style } from "./protocol";
+import type { Authority, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style } from "./protocol";
 
 export type Connection = Readonly<{
   code: RoomCode;
@@ -88,19 +88,19 @@ export class RoomClient {
     return `${this.base}/mp${path}`;
   }
 
-  async open(name: string, seed: number, startPhase: number): Promise<void> {
+  async open(name: string, seed: number, startPhase: number, gear: Gear | null = null): Promise<void> {
     this.set({ kind: "connecting" });
     try {
-      this.begin(connectionFrom(await ask(this.url("/rooms"), { name, seed, startPhase }), true));
+      this.begin(connectionFrom(await ask(this.url("/rooms"), { name, seed, startPhase, gear }), true));
     } catch (error) {
       this.fail(error);
     }
   }
 
-  async join(code: RoomCode, name: string): Promise<void> {
+  async join(code: RoomCode, name: string, gear: Gear | null = null): Promise<void> {
     this.set({ kind: "connecting" });
     try {
-      this.begin(connectionFrom(await ask(this.url(`/rooms/${code}/join`), { name }), false));
+      this.begin(connectionFrom(await ask(this.url(`/rooms/${code}/join`), { name, gear }), false));
     } catch (error) {
       this.fail(error);
     }
@@ -182,6 +182,11 @@ export class RoomClient {
 
   setReady(ready: boolean): void {
     this.post("/ready", { ready });
+  }
+
+  /** Changing tier or weapon in the lobby re-dresses this player for everyone else. */
+  setGear(gear: Gear | null): void {
+    this.post("/gear", { gear });
   }
 
   start(): void {

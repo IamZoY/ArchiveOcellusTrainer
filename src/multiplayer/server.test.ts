@@ -250,6 +250,52 @@ describe("ready and start", () => {
   });
 });
 
+describe("gear", () => {
+  it("carries what each player is wearing to the other client's roster", async () => {
+    const host = await open("Zoy");
+    const stream = await listen(host);
+    await stream.next("welcome");
+    const before = stream.count();
+
+    const joined = await post(`/mp/rooms/${host.code}/join`, { name: "Ziad", gear: { tier: "poor", weapon: "melee" } });
+    expect(joined.status).toBe(200);
+
+    const roster = await stream.next("roster", before);
+    expect(roster.roster.find((member) => member.name === "Ziad")?.gear).toMatchObject({ tier: "poor", weapon: "melee" });
+    stream.close();
+  }, 10000);
+
+  it("tells everyone when a player changes tier in the lobby", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    const stream = await listen(host);
+    await stream.next("welcome");
+    const before = stream.count();
+
+    const dressed = await post(`/mp/rooms/${host.code}/gear`, {
+      playerId: guest.playerId,
+      token: guest.token,
+      gear: { tier: "max", weapon: "blowpipe" },
+    });
+    expect(dressed.status).toBe(200);
+
+    const roster = await stream.next("roster", before);
+    expect(roster.roster.find((member) => member.id === guest.playerId)?.gear).toMatchObject({ tier: "max", weapon: "blowpipe" });
+    stream.close();
+  }, 10000);
+
+  it("refuses gear a build could not know, rather than passing it on", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    const sent = await post(`/mp/rooms/${host.code}/gear`, { playerId: guest.playerId, token: guest.token, gear: { tier: "godmode" } });
+    expect(sent.status).toBe(200);
+    const stream = await listen(host);
+    const welcome = await stream.next("welcome");
+    expect(welcome.roster.find((member) => member.id === guest.playerId)?.gear).toBeNull();
+    stream.close();
+  }, 10000);
+});
+
 describe("live state", () => {
   it("carries one player's tile to the other player", async () => {
     const host = await open("Zoy");

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Rooms, randomFrom, rosterOf, statesOf, why } from "./rooms";
 import type { PlayerState } from "./protocol";
-import { CODE_LENGTH, MAX_PLAYERS, STALE_MS, isRoomCode, parseAuthority, parseIntent, parseName, parsePlayerState } from "./protocol";
+import { CODE_LENGTH, MAX_PLAYERS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
 
 /** A counter stands in for randomness so every code and id in a test is known in advance. */
 function counting() {
@@ -193,6 +193,48 @@ describe("parsing what arrives from another machine", () => {
     expect(parseName("!!!")).toBeNull();
     expect(parseName("")).toBeNull();
     expect(parseName("a".repeat(50))?.length).toBe(12);
+  });
+});
+
+const TIERS = ["raid", "max", "high", "mid", "low", "poor"];
+const WEAPONS = ["twistedBow", "blowpipe", "melee", "ralos"];
+
+describe("gear", () => {
+  it("keeps a tier and weapon this build knows", () => {
+    expect(parseGear({ tier: "max", weapon: "blowpipe" }, TIERS, WEAPONS)).toEqual({ tier: "max", weapon: "blowpipe", edited: false });
+  });
+
+  it("refuses a tier it does not know rather than dressing someone wrongly", () => {
+    expect(parseGear({ tier: "godmode", weapon: "melee" }, TIERS, WEAPONS)).toBeNull();
+    expect(parseGear({}, TIERS, WEAPONS)).toBeNull();
+  });
+
+  it("drops an unknown weapon but keeps the tier, so the figure still dresses", () => {
+    expect(parseGear({ tier: "low", weapon: "excalibur" }, TIERS, WEAPONS)).toEqual({ tier: "low", weapon: null, edited: false });
+  });
+
+  it("carries the edited flag, because an edited tier is not what others will draw", () => {
+    expect(parseGear({ tier: "raid", weapon: "melee", edited: true }, TIERS, WEAPONS)?.edited).toBe(true);
+  });
+
+  it("puts each player's gear on the roster, and lets them change it in the lobby", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0, { tier: "max", weapon: "twistedBow", edited: false });
+    expect(rosterOf(room)[0]?.gear).toMatchObject({ tier: "max" });
+
+    const guest = all.join(room.code, "Ziad", 0, { tier: "poor", weapon: "melee", edited: false });
+    if (!guest.ok) throw new Error("join failed");
+    expect(rosterOf(room).find((member) => member.name === "Ziad")?.gear).toMatchObject({ tier: "poor", weapon: "melee" });
+
+    all.setGear(room.code, seat.id, seat.token, { tier: "mid", weapon: "blowpipe", edited: true }, 0);
+    expect(rosterOf(room)[0]?.gear).toMatchObject({ tier: "mid", weapon: "blowpipe", edited: true });
+  });
+
+  it("refuses to re-dress a seat without its token", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0, { tier: "max", weapon: null, edited: false });
+    expect(all.setGear(room.code, seat.id, "wrong", { tier: "poor", weapon: null, edited: false }, 0)).toMatchObject({ ok: false, why: { kind: "bad-token" } });
+    expect(rosterOf(room)[0]?.gear).toMatchObject({ tier: "max" });
   });
 });
 

@@ -7,16 +7,17 @@
  */
 import { Player } from "osrs-sdk";
 import type { Region } from "osrs-sdk";
-import type { PlayerState, Style } from "./protocol";
+import type { Gear, PlayerState, Style } from "./protocol";
 
 const PROTECTION: Readonly<Record<Style, string>> = { melee: "melee", ranged: "range", magic: "magic" };
 
 export type RemoteLook = Readonly<{ name: string; dead: boolean; prayer: Style | null; hp: number; maxHp: number }>;
 
+/** Dresses a puppet in the gear its owner named. The trainer supplies this; the room knows nothing of catalogs. */
+export type Dresser = (player: RemotePlayer, gear: Gear | null) => void;
+
 export class RemotePlayer extends Player {
   private look: RemoteLook;
-  /** The last tick this player was heard from, so a stale puppet can be told apart from a standing one. */
-  private heardAt = 0;
 
   constructor(region: Region, at: Readonly<{ x: number; y: number }>, private readonly who: string, name: string) {
     super(region, { x: at.x, y: at.y });
@@ -41,16 +42,11 @@ export class RemotePlayer extends Player {
     return this.look;
   }
 
-  lastHeard(): number {
-    return this.heardAt;
-  }
-
   /**
    * Takes one report. A step of a tile or two is walked so the SDK tweens it; anything further is a teleport, a
    * fall or a late packet, and is placed outright rather than shown as an impossible sprint.
    */
-  apply(state: PlayerState, now: number): void {
-    this.heardAt = now;
+  apply(state: PlayerState): void {
     this.look = { ...this.look, dead: state.dead, prayer: state.prayer, hp: state.hp, maxHp: state.maxHp };
     this.currentStats.hitpoint = state.hp;
     this.stats.hitpoint = state.maxHp;
@@ -89,25 +85,37 @@ export class RemotePlayer extends Player {
   }
 }
 
+export type Known = Readonly<{ name: string; gear: Gear | null }>;
+
 /** Keeps one puppet per remote player, making and retiring them as the roster changes. */
 export class RemoteCrowd {
   private readonly puppets = new Map<string, RemotePlayer>();
+  /** What each puppet was last dressed in, so gear is re-applied only when it actually changed. */
+  private readonly worn = new Map<string, string>();
 
-  constructor(private readonly region: Region, private readonly spawn: Readonly<{ x: number; y: number }>) {}
+  constructor(private readonly region: Region, private readonly spawn: Readonly<{ x: number; y: number }>, private readonly dress: Dresser = () => {}) {}
 
-  /** Applies a batch of reports, adding anyone newly seen. */
-  apply(states: readonly PlayerState[], names: ReadonlyMap<string, string>, now: number): void {
+  /** Applies a batch of reports, adding anyone newly seen and dressing them as the roster says. */
+  apply(states: readonly PlayerState[], known: ReadonlyMap<string, Known>): void {
     for (const state of states) {
+      const who = known.get(state.id);
       let puppet = this.puppets.get(state.id);
       if (!puppet) {
-        puppet = new RemotePlayer(this.region, this.spawn, state.id, names.get(state.id) ?? "friend");
+        puppet = new RemotePlayer(this.region, this.spawn, state.id, who?.name ?? "friend");
         this.puppets.set(state.id, puppet);
         this.region.addPlayer(puppet);
       }
-      const name = names.get(state.id);
-      if (name !== undefined) puppet.setName(name);
-      puppet.apply(state, now);
+      if (who !== undefined) puppet.setName(who.name);
+      this.redress(puppet, who?.gear ?? null);
+      puppet.apply(state);
     }
+  }
+
+  private redress(puppet: RemotePlayer, gear: Gear | null): void {
+    const key = gear === null ? "-" : `${gear.tier}:${gear.weapon ?? "-"}`;
+    if (this.worn.get(puppet.id) === key) return;
+    this.worn.set(puppet.id, key);
+    this.dress(puppet, gear);
   }
 
   /** Anyone no longer on the roster is taken out of the world. */
@@ -116,6 +124,7 @@ export class RemoteCrowd {
       if (ids.has(id)) continue;
       this.region.removePlayer(puppet);
       this.puppets.delete(id);
+      this.worn.delete(id);
     }
   }
 
@@ -125,11 +134,6 @@ export class RemoteCrowd {
 
   all(): readonly RemotePlayer[] {
     return [...this.puppets.values()];
-  }
-
-  /** Someone still standing, for a dead player's camera to follow. */
-  anyAlive(): RemotePlayer | null {
-    return this.all().find((puppet) => !puppet.state().dead) ?? null;
   }
 
   clear(): void {

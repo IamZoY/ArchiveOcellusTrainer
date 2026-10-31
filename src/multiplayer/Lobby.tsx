@@ -4,7 +4,7 @@
  */
 import React, { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import type { RoomClient } from "./client";
-import type { Member, PlayerId } from "./protocol";
+import type { Gear, Member, PlayerId } from "./protocol";
 import { CODE_LENGTH, isRoomCode } from "./protocol";
 
 export const LOBBY_CSS = `
@@ -24,6 +24,7 @@ export const LOBBY_CSS = `
 #coop_panel .coop-waiting { opacity: 0.6; }
 #coop_panel .coop-dead { opacity: 0.5; text-decoration: line-through; }
 #coop_panel .coop-target { color: #ffb84d; }
+#coop_panel .coop-gear { color: #9fd0ff; text-transform: capitalize; }
 #spectate_banner {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: rgba(0,0,0,0.72); color: #fff; padding: 10px 16px; border-radius: 6px;
@@ -82,6 +83,7 @@ function Roster({ roster, you, targetId }: Readonly<{ roster: readonly Member[];
             {member.id === you ? " (you)" : ""}
           </span>
           <span className="coop-row">
+            {member.gear !== null && <span className="coop-tag coop-gear">{member.gear.edited ? `${member.gear.tier}*` : member.gear.tier}</span>}
             {member.id === targetId && !member.dead && <span className="coop-tag coop-target">boss</span>}
             {member.host && <span className="coop-tag">host</span>}
             <span className={member.ready ? "coop-ready" : "coop-waiting"}>{member.dead ? "dead" : member.ready ? "ready" : "waiting"}</span>
@@ -92,7 +94,7 @@ function Roster({ roster, you, targetId }: Readonly<{ roster: readonly Member[];
   );
 }
 
-export function CoopPanel({ client, seed, startPhase, targetId }: Readonly<{ client: RoomClient; seed: number; startPhase: number; targetId: PlayerId | null }>) {
+export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly<{ client: RoomClient; seed: number; startPhase: number; targetId: PlayerId | null; gear: Gear }>) {
   const phase = useClient(client);
   const [name, setName] = useState(savedName);
   const [code, setCode] = useState(() => codeInUrl() ?? "");
@@ -101,6 +103,14 @@ export function CoopPanel({ client, seed, startPhase, targetId }: Readonly<{ cli
   useEffect(() => {
     if (phase.kind === "lobby" || phase.kind === "fighting") putCodeInUrl(phase.connection.code);
   }, [phase]);
+
+  const worn = `${gear.tier}:${gear.weapon ?? "-"}:${gear.edited}`;
+  useEffect(() => {
+    if (phase.kind !== "lobby") return;
+    client.setGear(gear);
+    // Only a change of kit matters here, which `worn` names.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worn, phase.kind, client]);
 
   const named = name.trim().length > 0;
 
@@ -134,7 +144,7 @@ export function CoopPanel({ client, seed, startPhase, targetId }: Readonly<{ cli
               }}
             />
           </div>
-          <button type="button" id="coop_host" disabled={!named} onClick={() => void client.open(name.trim(), seed, startPhase)}>
+          <button type="button" id="coop_host" disabled={!named} onClick={() => void client.open(name.trim(), seed, startPhase, gear)}>
             Host a fight
           </button>
           <p className="coop-hint">or join one:</p>
@@ -146,7 +156,7 @@ export function CoopPanel({ client, seed, startPhase, targetId }: Readonly<{ cli
               maxLength={CODE_LENGTH}
               onChange={(event) => setCode(event.target.value.toUpperCase())}
             />
-            <button type="button" id="coop_join" disabled={!named || !isRoomCode(code)} onClick={() => void client.join(code, name.trim())}>
+            <button type="button" id="coop_join" disabled={!named || !isRoomCode(code)} onClick={() => void client.join(code, name.trim(), gear)}>
               Join
             </button>
           </div>

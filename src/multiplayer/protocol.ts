@@ -35,12 +35,20 @@ export type PlayerState = Readonly<{
   dead: boolean;
 }>;
 
+/**
+ * What someone is wearing, named rather than listed: a tier and the weapon in hand is enough for another client to
+ * dress the same figure from its own catalog, and costs a few bytes once instead of an item list every tick.
+ * `edited` says the tier was changed in the Loadout editor, so what others draw is the tier it started from.
+ */
+export type Gear = Readonly<{ tier: string; weapon: string | null; edited: boolean }>;
+
 export type Member = Readonly<{
   id: PlayerId;
   name: string;
   ready: boolean;
   host: boolean;
   dead: boolean;
+  gear: Gear | null;
 }>;
 
 export type Roster = readonly Member[];
@@ -140,6 +148,14 @@ export function parseAuthority(raw: unknown): Authority | null {
 }
 
 /** A long name is cut to fit rather than refused, since a person who typed one still meant to join. */
+/** Only the names this build knows are kept; anything else dresses as the raid tier rather than failing a join. */
+export function parseGear(raw: unknown, tiers: readonly string[], weapons: readonly string[]): Gear | null {
+  const tier = tiers.find((known) => known === field(raw, "tier"));
+  if (tier === undefined) return null;
+  const asked = field(raw, "weapon");
+  return { tier, weapon: weapons.find((known) => known === asked) ?? null, edited: field(raw, "edited") === true };
+}
+
 export function parseName(raw: unknown): string | null {
   const name = text(raw, 256);
   if (name === null) return null;

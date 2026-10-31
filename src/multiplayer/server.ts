@@ -12,12 +12,16 @@ import { randomFillSync } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import type { PlayerId, RoomCode, ServerEvent } from "./protocol";
-import { HEARTBEAT_MS, encodeEvent, isRoomCode, parseAuthority, parseIntent, parseName, parsePlayerState } from "./protocol";
+import { HEARTBEAT_MS, encodeEvent, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
 import type { Room } from "./rooms";
 import { Rooms, randomFrom, rosterOf, statesOf, why } from "./rooms";
 
 const MAX_BODY_BYTES = 8192;
 const STATE_FLUSH_MS = 120;
+
+/** The server dresses nobody, so it only checks these are names a build could know, not that they suit each other. */
+const TIERS = ["raid", "max", "high", "mid", "low", "poor"];
+const WEAPONS = ["twistedBow", "blowpipe", "melee", "ralos"];
 
 const TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -152,7 +156,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
       const startPhase = Number(field(body, "startPhase"));
       if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) return send(response, 400, { error: "a 32-bit seed is needed" });
       if (![1, 2, 3, 4].includes(startPhase)) return send(response, 400, { error: "startPhase must be 1 to 4" });
-      const { room, seat } = rooms.open(name, seed, startPhase, now);
+      const { room, seat } = rooms.open(name, seed, startPhase, now, parseGear(field(body, "gear"), TIERS, WEAPONS));
       return send(response, 200, { code: room.code, playerId: seat.id, token: seat.token, seed: room.seed, startPhase: room.startPhase, host: true });
     }
 
@@ -168,7 +172,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     if (action === "join") {
       const name = parseName(field(body, "name"));
       if (name === null) return send(response, 400, { error: "a name is needed" });
-      const joined = rooms.join(code, name, now);
+      const joined = rooms.join(code, name, now, parseGear(field(body, "gear"), TIERS, WEAPONS));
       if (!joined.ok) return send(response, 409, { error: why(joined.why) });
       announce(joined.value.room);
       const { room, seat } = joined.value;
@@ -183,6 +187,12 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
         const set = rooms.setReady(code, id, token, field(body, "ready") === true, now);
         if (!set.ok) return send(response, 403, { error: why(set.why) });
         announce(set.value);
+        return send(response, 200, { ok: true });
+      }
+      case "gear": {
+        const dressed = rooms.setGear(code, id, token, parseGear(field(body, "gear"), TIERS, WEAPONS), now);
+        if (!dressed.ok) return send(response, 403, { error: why(dressed.why) });
+        announce(dressed.value);
         return send(response, 200, { ok: true });
       }
       case "start": {
