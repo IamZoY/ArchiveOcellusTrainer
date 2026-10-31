@@ -27,6 +27,7 @@ export const T = {
   lightEvery: ticks(D.lightEvery),
   fireAfterLight: ticks(D.fireAfterLight),
   poolsAt: ticks(D.poolsAt),
+  poolsLast: ticks(D.poolsLast),
   allLitAt: ticks(D.allLitAt),
   safePortalAt: ticks(D.safePortalAt),
   safePortalUntil: ticks(D.safePortalUntil),

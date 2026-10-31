@@ -32,10 +32,8 @@ function held(effect: GroundEffect): SpotOptions {
   switch (effect) {
     case "repair":
       return { maxTicks: T.repairEvery.value };
-    case "pools": {
-      const loop = T.allFireAt.value - T.poolsAt.value;
-      return { loopTicks: loop, maxTicks: loop + T.oneTick.value };
-    }
+    case "pools":
+      return { loopTicks: T.poolsLast.value, maxTicks: T.poolsLast.value };
     case "safe-spawn":
       return { maxTicks: T.oneTick.value + T.oneTick.value };
     case "safe-idle": {

@@ -14,7 +14,6 @@ const LIT = [11, 16, 21, 26, 31, 36, 42, 53, 58, 63, 68, 73, 78, 84, 95, 100, 10
  */
 export const P2_REPLAYS: Replays<P2Types, FightLog> = {
   line: { kind: "unlogged", why: "a line hits only a raider standing on the wave, and the logs do not separate that from other damage" },
-  pool: { kind: "unlogged", why: "a pool hits only a raider standing in it, and the logs do not name the pool" },
   "blade-woke": { kind: "log", log: "L1", at: "L1.txt:2204 and L2.txt:902 say \"Your time... comes...\" at P2 +7", ticks: [7] },
   "portals-rose": { kind: "unlogged", why: "the cross is up from tick 2; the logs mark portals when they light, at +11" },
   "portals-lit": { kind: "log", log: "L1", at: "L1.txt:2220 portals lit at P2 +11, through L1.txt:2389 at +120", ticks: LIT },

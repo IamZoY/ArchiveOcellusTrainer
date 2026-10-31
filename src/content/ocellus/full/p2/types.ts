@@ -4,7 +4,7 @@ import type { Ctx, ScriptRow } from "../../../../sim/script";
 import type { ATile } from "../../fight/geometry";
 
 /** Every way phase 2 hurts the player. One kind per row in the replay table. */
-export type P2Cause = Readonly<{ kind: "line" }> | Readonly<{ kind: "pool" }>;
+export type P2Cause = Readonly<{ kind: "line" }>;
 
 export type P2Event =
   | Readonly<{ kind: "blade-woke"; at: Tick }>

@@ -160,6 +160,21 @@ describe("phase 2's blade, rounds and hazards", () => {
     ]);
   });
 
+  test("a pool never hurts, and the pools go 6 ticks after they open", () => {
+    const f = startP2();
+    close = f.close;
+    // The sixth wave fires at 40 and is past every tile by 42, so from 43 only a pool could hurt.
+    f.tickTo(42);
+    const pool = f.looks("ground").find(([tick, look]) => tick === 39 && look.effect === "pools")?.[1].tiles[0];
+    if (!pool) throw new Error("no pools opened at 39");
+    f.player().hop(pool);
+    const hp = f.player().currentStats.hitpoint;
+    f.tickTo(46);
+    const poolMarks = (tick: number) => f.looks("marks").filter(([t]) => t <= tick).at(-1)?.[1].tiles.filter((mark) => mark.role === "pool").length ?? 0;
+    // Ten raid logs: 156 raider-ticks on a pool and no pool hit; the 4270 graphic ends 6 ticks after it opens.
+    expect({ hp: f.player().currentStats.hitpoint, onPoolAt44: poolMarks(44), onPoolAt45: poolMarks(45) }).toEqual({ hp, onPoolAt44: 13, onPoolAt45: 0 });
+  });
+
   test("the sword repairs from tick 3 every 3 ticks, and stops before enough", () => {
     const f = startP2();
     close = f.close;

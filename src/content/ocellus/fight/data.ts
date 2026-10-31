@@ -323,6 +323,11 @@ export const P2 = {
   fireAfterLight: 4,
   poolsAt: 28,
   poolCount: 13,
+  /**
+   * The pools mark where the safe portal can open and never hurt: in ten raid logs 4270 played on 13 tiles at P2 +39
+   * and +81 and ended 6 ticks later every time, and raiders stood on them for 156 ticks without a hit of their own.
+   */
+  poolsLast: 6,
   allLitAt: 31,
   safePortalAt: 33,
   safePortalUntil: 39,
@@ -341,7 +346,6 @@ export const P2 = {
   skipStandOut: 6,
   skipRunOut: 4,
   skipMarkerColour: "#FF3DE0",
-  poolDamage: range(3, 5),
   /**
    * A round's six gaps are one of three fixed sequences, each wave's (north or south arm, east or west arm) gap 1..6
    * out, mirrored into every quadrant. The first round's sequence is random, then orange, red, green in turn (39/39

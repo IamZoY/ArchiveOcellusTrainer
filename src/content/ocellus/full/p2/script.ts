@@ -156,11 +156,6 @@ export class P2Script<E extends Entries> implements Script<E, P2Types> {
       m.log({ kind: "escaped", at: m.now, to: landing });
       return;
     }
-    if (round.pools.length > 0 && offset > T.poolsAt.value && offset < T.allFireAt.value) {
-      const onPool = round.pools.some((pool) => same(pool, here));
-      const onSafe = safe.kind === "open" && same(safe.tile, here);
-      if (onPool && !onSafe) m.hit({ kind: "pool" }, V.poolDamage);
-    }
   }
 
   landed(): void {}
@@ -325,6 +320,11 @@ export class P2Script<E extends Entries> implements Script<E, P2Types> {
     m.show({ kind: "ground", effect: "pools", tiles: round.pools });
     m.log({ kind: "pools-opened", at: m.now, count: round.pools.length });
     this.paint(m);
+    m.afterPhase(T.poolsLast, (n) => {
+      if (this.round !== round) return;
+      round.pools = [];
+      this.paint(n);
+    });
   }
 
   private openSafe(m: P2Ctx<E>, round: Round): void {

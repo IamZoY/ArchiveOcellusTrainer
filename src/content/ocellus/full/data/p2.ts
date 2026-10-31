@@ -149,6 +149,13 @@ export const p2Sourced = {
     noWiki("the wiki's phase 2 text does not state this count"),
     ocellusSim("data.ts:279"),
   ),
+  poolsLast: selected(
+    6,
+    "inferred",
+    "unscaled",
+    "The pools mark where the safe portal can open and never hurt: in ten raid logs 4270 played on 13 tiles at P2 +39 and +81 and ended 6 ticks later every time, and raiders stood on them for 156 ticks without a hit of their own.",
+    noWiki("the wiki's phase 2 text does not state this count"),
+  ),
   allLitAt: selected(
     31,
     "inferred",
@@ -231,14 +238,6 @@ export const p2Sourced = {
     noWiki("the wiki's phase 2 text does not state this count"),
     ocellusSim("data.ts:297"),
   ),
-  poolDamage: selected(
-    { min: 3, max: 5 },
-    "inferred",
-    "unscaled",
-    "P2.poolDamage",
-    noWiki("the wiki's phase 2 text does not state this count"),
-    ocellusSim("data.ts:298"),
-  ),
   gapSequences: {
     orange: selected(
       [[2, 2], [4, 2], [2, 4], [2, 2], [3, 3], [5, 2]] as const,
@@ -317,6 +316,7 @@ export const P2 = {
   fireAfterLight: p2Sourced.fireAfterLight.value,
   poolsAt: p2Sourced.poolsAt.value,
   poolCount: p2Sourced.poolCount.value,
+  poolsLast: p2Sourced.poolsLast.value,
   allLitAt: p2Sourced.allLitAt.value,
   safePortalAt: p2Sourced.safePortalAt.value,
   safePortalUntil: p2Sourced.safePortalUntil.value,
@@ -327,7 +327,6 @@ export const P2 = {
   skipStandOut: p2Sourced.skipStandOut.value,
   skipRunOut: p2Sourced.skipRunOut.value,
   skipMarkerColour: p2Sourced.skipMarkerColour.value,
-  poolDamage: p2Sourced.poolDamage.value,
   gapSequences: {
     orange: p2Sourced.gapSequences.orange.value,
     red: p2Sourced.gapSequences.red.value,
