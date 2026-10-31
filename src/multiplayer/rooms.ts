@@ -12,7 +12,8 @@ export type Rejection =
   | Readonly<{ kind: "not-a-member" }>
   | Readonly<{ kind: "not-the-host" }>
   | Readonly<{ kind: "bad-token" }>
-  | Readonly<{ kind: "not-ready" }>;
+  | Readonly<{ kind: "not-ready" }>
+  | Readonly<{ kind: "name-taken" }>;
 
 export type Outcome<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; why: Rejection }>;
 
@@ -35,6 +36,8 @@ export function why(rejection: Rejection): string {
       return "that token does not match";
     case "not-ready":
       return "everyone must be ready first";
+    case "name-taken":
+      return "someone in that room already uses that name";
     default: {
       const unhandled: never = rejection;
       return unhandled;
@@ -60,6 +63,8 @@ export type Room = {
   hostId: PlayerId;
   started: boolean;
   startedAt: number | null;
+  /** Counts the runs this room has played, so a client can tell a fresh start from the one it is already in. */
+  runs: number;
   readonly seats: Map<PlayerId, Seat>;
 };
 
@@ -90,7 +95,7 @@ export class Rooms {
   open(hostName: string, seed: number, startPhase: number, now: number, gear: Gear | null = null): Readonly<{ room: Room; seat: Seat }> {
     const code = this.freeCode();
     const seat = this.seat(hostName, now, gear);
-    const room: Room = { code, seed, startPhase, hostId: seat.id, started: false, startedAt: null, seats: new Map([[seat.id, seat]]) };
+    const room: Room = { code, seed, startPhase, hostId: seat.id, started: false, startedAt: null, runs: 0, seats: new Map([[seat.id, seat]]) };
     this.rooms.set(code, room);
     return { room, seat };
   }
@@ -108,6 +113,9 @@ export class Rooms {
     if (!room) return no({ kind: "no-room" });
     if (room.started) return no({ kind: "already-started" });
     if (room.seats.size >= MAX_PLAYERS) return no({ kind: "full" });
+    // One name to a room: two figures called the same thing are unreadable in a roster and on a boss tag, and a
+    // second tab on one machine is how it usually happens.
+    if (takenIn(room, name)) return no({ kind: "name-taken" });
     const seat = this.seat(name, now, gear);
     room.seats.set(seat.id, seat);
     return ok({ room, seat });
@@ -150,6 +158,28 @@ export class Rooms {
     if (![...room.seats.values()].every((member) => member.ready)) return no({ kind: "not-ready" });
     room.started = true;
     room.startedAt = now;
+    return ok(room);
+  }
+
+  /**
+   * Runs the same fight again. The seat list, the code and the seed all stay; everyone is alive and unready, so the
+   * team gathers once and can go round as many times as it likes without passing the code again.
+   */
+  restart(code: RoomCode, id: PlayerId, token: string, now: number): Outcome<Room> {
+    const found = this.authorise(code, id, token);
+    if (!found.ok) return found;
+    const { room, seat } = found.value;
+    if (room.hostId !== seat.id) return no({ kind: "not-the-host" });
+    room.started = false;
+    room.startedAt = null;
+    room.runs += 1;
+    // Ready is left alone: the team already said yes once, so running it again is one click for the host and none
+    // for anyone else. The host still chooses the moment, and the fight opens on its own GET READY countdown.
+    for (const member of room.seats.values()) {
+      member.dead = false;
+      member.state = null;
+      member.seenAt = now;
+    }
     return ok(room);
   }
 
@@ -228,6 +258,12 @@ export class Rooms {
   count(): number {
     return this.rooms.size;
   }
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+export function takenIn(room: Room, name: string): boolean {
+  return [...room.seats.values()].some((seat) => sameName(seat.name, name));
 }
 
 export function rosterOf(room: Room): Roster {

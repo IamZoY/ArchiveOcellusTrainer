@@ -6,6 +6,7 @@ export const CHANGELOG: Changelog = [
     notes: [
       "Train the fight together. Co-op in the side panel gives a six-letter code to pass to your friends; they type it in or open the link you send, everyone presses Ready, and the host starts. You all fight the one boss on the same timings, so a crack, a rift or an explosion falls on the same tick for everyone.",
       "You see each other walk, pray and take damage as it happens, each in their own gear with their health above them. Everyone picks their own tier, shown beside their name. The boss is on one of you at a time, marked in the Co-op list, and only that person takes its hits. If you die you keep watching whoever is still standing, as in game.",
+      "Run it again puts the whole team straight back in the lobby, still ready, so the host can start the next attempt with one click without passing the code round again. One name to a room, so two people are never both called the same thing, and a reload or a dropped connection comes back to the same seat.",
     ],
   },
   {

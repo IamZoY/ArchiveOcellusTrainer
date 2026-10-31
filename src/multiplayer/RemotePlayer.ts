@@ -1,15 +1,20 @@
 /**
  * Someone else's player, drawn in this client's world.
  *
- * It is a real SDK player so the renderer, the minimap and the click-through all treat it as one, but it decides
- * nothing: no input, no pathing, no combat. Each report from the room moves it one step, and the SDK's own
- * interpolation carries it between ticks, which is what makes a friend's run look like walking rather than blinking.
+ * It is a real SDK player and takes the engine's own movement step, because that step is what fills the visual path
+ * the renderer walks and animates along: a figure moved by hand instead slides without a walk cycle and jumps
+ * whenever a report lands mid-tick. The one thing it decides differently is where it is going, which it reads from
+ * the room rather than from a click. Its combat, its pathing of its own and its click markers stay off, because the
+ * client that owns it is the one that settles those.
  */
 import { Player } from "osrs-sdk";
 import type { Region } from "osrs-sdk";
 import type { Gear, PlayerState, Style } from "./protocol";
 
 const PROTECTION: Readonly<Record<Style, string>> = { melee: "melee", ranged: "range", magic: "magic" };
+
+/** Further than a run could cover in a tick means a fall, a portal or a late packet, so the figure is placed. */
+const TELEPORTS_BEYOND = 3;
 
 export type RemoteLook = Readonly<{ name: string; dead: boolean; prayer: Style | null; hp: number; maxHp: number }>;
 
@@ -18,6 +23,8 @@ export type Dresser = (player: RemotePlayer, gear: Gear | null) => void;
 
 export class RemotePlayer extends Player {
   private look: RemoteLook;
+  /** Where the room last said this player is. Stepping towards it is the engine's job, on its own tick. */
+  private goal: Readonly<{ x: number; y: number }> | null = null;
 
   constructor(region: Region, at: Readonly<{ x: number; y: number }>, private readonly who: string, name: string) {
     super(region, { x: at.x, y: at.y });
@@ -43,22 +50,30 @@ export class RemotePlayer extends Player {
   }
 
   /**
-   * Takes one report. A step of a tile or two is walked so the SDK tweens it; anything further is a teleport, a
-   * fall or a late packet, and is placed outright rather than shown as an impossible sprint.
+   * Takes one report. Only the goal moves here, so a report landing between ticks cannot drag the figure sideways
+   * mid-frame; the engine walks it there on the next tick like any other player.
    */
   apply(state: PlayerState): void {
     this.look = { ...this.look, dead: state.dead, prayer: state.prayer, hp: state.hp, maxHp: state.maxHp };
-    this.currentStats.hitpoint = state.hp;
-    this.stats.hitpoint = state.maxHp;
-    const far = Math.max(Math.abs(state.tile.x - this.location.x), Math.abs(state.tile.y - this.location.y));
-    if (far === 0) return;
-    if (far > 2) {
-      this.perceivedLocation = { x: state.tile.x, y: state.tile.y };
+    // The world culls a player whose hitpoints reach 0, which would take the figure out of everyone's scene before
+    // its owner said so, so the bar is drawn from a floor of 1 and death is the room's word instead.
+    this.currentStats.hitpoint = Math.max(1, state.hp);
+    this.stats.hitpoint = Math.max(1, state.maxHp);
+    const away = Math.max(Math.abs(state.tile.x - this.location.x), Math.abs(state.tile.y - this.location.y));
+    this.goal = { x: state.tile.x, y: state.tile.y };
+    if (away > TELEPORTS_BEYOND) {
       this.location = { x: state.tile.x, y: state.tile.y };
-      return;
+      this.perceivedLocation = { x: state.tile.x, y: state.tile.y };
+      this.visualPath = [];
     }
-    this.perceivedLocation = { x: this.location.x, y: this.location.y };
-    this.location = { x: state.tile.x, y: state.tile.y };
+  }
+
+  /**
+   * The room's word on where to head, in place of the click a real player would make. The pace is the engine's own:
+   * the figure covers two tiles when it is behind, exactly as its owner did.
+   */
+  override determineDestination(): void {
+    if (this.goal !== null) this.destinationLocation = { x: this.goal.x, y: this.goal.y };
   }
 
   /** Overheads are drawn from the report rather than from a prayer book this client does not own. */
@@ -70,12 +85,12 @@ export class RemotePlayer extends Player {
     }
   }
 
-  // Nothing below here may run: a puppet that paths, attacks or dies on its own would disagree with its owner.
-  override movementStep(): void {}
+  /** Someone else's click marker is noise in your scene. */
+  override updatePathMarker(): void {}
+
+  // Their own client settles their combat, so this one never swings, retaliates or dies on its own.
   override attackStep(): void {}
   override attackIfPossible(): void {}
-  override determineDestination(): void {}
-  override moveTowardsDestination(): void {}
   override attack(): boolean {
     return false;
   }
@@ -87,9 +102,11 @@ export class RemotePlayer extends Player {
 
 export type Known = Readonly<{ name: string; gear: Gear | null }>;
 
-/** Keeps one puppet per remote player, making and retiring them as the roster changes. */
+/** Keeps one puppet per remote player, making, dressing and retiring them as the room changes. */
 export class RemoteCrowd {
   private readonly puppets = new Map<string, RemotePlayer>();
+  /** Who is standing in the scene right now: a dead player leaves it, as they do in game. */
+  private readonly shown = new Set<string>();
   /** What each puppet was last dressed in, so gear is re-applied only when it actually changed. */
   private readonly worn = new Map<string, string>();
 
@@ -103,12 +120,25 @@ export class RemoteCrowd {
       if (!puppet) {
         puppet = new RemotePlayer(this.region, this.spawn, state.id, who?.name ?? "friend");
         this.puppets.set(state.id, puppet);
-        this.region.addPlayer(puppet);
       }
       if (who !== undefined) puppet.setName(who.name);
       this.redress(puppet, who?.gear ?? null);
       puppet.apply(state);
+      this.display(puppet, !state.dead);
     }
+  }
+
+  /** A living player stands in the scene; a dead one leaves it, and returns if the team runs the fight again. */
+  private display(puppet: RemotePlayer, alive: boolean): void {
+    const inScene = this.shown.has(puppet.id);
+    if (alive === inScene) return;
+    if (alive) {
+      this.region.addPlayer(puppet);
+      this.shown.add(puppet.id);
+      return;
+    }
+    this.region.removePlayer(puppet);
+    this.shown.delete(puppet.id);
   }
 
   private redress(puppet: RemotePlayer, gear: Gear | null): void {
@@ -118,11 +148,11 @@ export class RemoteCrowd {
     this.dress(puppet, gear);
   }
 
-  /** Anyone no longer on the roster is taken out of the world. */
+  /** Anyone no longer in the room is taken out of the world. */
   retain(ids: ReadonlySet<string>): void {
     for (const [id, puppet] of [...this.puppets]) {
       if (ids.has(id)) continue;
-      this.region.removePlayer(puppet);
+      this.display(puppet, false);
       this.puppets.delete(id);
       this.worn.delete(id);
     }

@@ -201,6 +201,12 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
       return (
         <div id="coop_panel">
           <Roster roster={phase.roster} you={phase.connection.you} targetId={targetId} />
+          {phase.connection.host && (
+            <button type="button" id="coop_again" onClick={() => client.again()}>
+              Run it again
+            </button>
+          )}
+          {!phase.connection.host && <p className="coop-hint">The host can run it again from here.</p>}
           <button type="button" onClick={() => { putCodeInUrl(null); client.leave(); }}>
             Leave
           </button>

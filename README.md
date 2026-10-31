@@ -34,6 +34,10 @@ The boss is on one person at a time. Every client points its fight at whoever th
 damage lands on that person's machine and on nobody else's; the host is the one that says who that is and what each
 hit did. A guest that opened the page on a different seed reloads onto the host's and rejoins by itself.
 
+**Run it again** puts the team back in the lobby with everyone still ready, so the next attempt is one click for the
+host and none for anyone else. A room holds one of each name, and a seat survives a reload or a dropped connection
+for 45 seconds, so coming back lands you in your own seat rather than a new one.
+
 The room server carries the words between machines and holds no fight of its own. It serves the built site too, so a
 VPS needs one process:
 

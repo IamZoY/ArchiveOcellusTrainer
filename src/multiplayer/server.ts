@@ -132,13 +132,16 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
     rooms.touch(code, id, Date.now());
 
     response.write(encodeEvent({ kind: "welcome", you: id, code, seed: room.seed, startPhase: room.startPhase, roster: rosterOf(room) }));
-    if (room.started) response.write(encodeEvent({ kind: "start", seed: room.seed, startPhase: room.startPhase, at: room.startedAt ?? Date.now() }));
+    if (room.started) response.write(encodeEvent({ kind: "start", seed: room.seed, startPhase: room.startPhase, at: room.startedAt ?? Date.now(), run: room.runs }));
     announce(room);
 
+    // A closed stream is not a departure. A reload closes one and opens another a second later, and dropping the
+    // seat in between would hand the host's seat to someone else and lose everyone's ready. The seat is held until
+    // the stale sweep gives up on it, which is also what a dropped connection deserves.
     const close = () => {
       if (!streams.delete(stream)) return;
-      const left = rooms.leave(code, id, token);
-      if (left.ok) announce(left.value);
+      const room = rooms.get(code);
+      if (room) announce(room);
     };
     request.on("close", close);
     request.on("error", close);
@@ -198,7 +201,7 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
       case "start": {
         const started = rooms.start(code, id, token, now);
         if (!started.ok) return send(response, 409, { error: why(started.why) });
-        publish(code, { kind: "start", seed: started.value.seed, startPhase: started.value.startPhase, at: started.value.startedAt ?? now });
+        publish(code, { kind: "start", seed: started.value.seed, startPhase: started.value.startPhase, at: started.value.startedAt ?? now, run: started.value.runs });
         return send(response, 200, { ok: true });
       }
       case "state": {
@@ -224,6 +227,13 @@ export function createRoomServer(distDir: string, options: ServerOptions = {}) {
         if (!judged.ok) return send(response, 403, { error: why(judged.why) });
         publish(code, { kind: "authority", authority }, id);
         if (authority.deaths.length > 0) announce(judged.value);
+        return send(response, 200, { ok: true });
+      }
+      case "again": {
+        const again = rooms.restart(code, id, token, now);
+        if (!again.ok) return send(response, 409, { error: why(again.why) });
+        publish(code, { kind: "regroup", run: again.value.runs });
+        announce(again.value);
         return send(response, 200, { ok: true });
       }
       case "leave": {

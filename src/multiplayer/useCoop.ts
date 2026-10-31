@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Player } from "osrs-sdk";
-import { RoomClient } from "./client";
+import { RoomClient, savedSeat } from "./client";
 import type { Connection } from "./client";
 import { MultiplayerSession } from "./session";
 import type { FightPorts, LocalView } from "./session";
@@ -67,8 +67,28 @@ function reloadOnto(connection: Connection): void {
   window.location.replace(url.toString());
 }
 
+/**
+ * A fresh run needs a fresh fight, and a running region cannot be rebuilt under the renderer, so the page reloads
+ * with the room and seed it already has and auto-joins straight back into the lobby.
+ */
+function reloadIntoRoom(code: string, seed: number): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", code);
+  url.searchParams.set("seed", String(seed));
+  window.location.replace(url.toString());
+}
+
 export function useCoop(bridge: FightBridge): CoopHandle {
   const client = useMemo(() => new RoomClient(), []);
+  // Read when it fires, not when it is registered: the room is not joined yet at the time this runs.
+  useEffect(() => {
+    client.on({
+      regroup: () => {
+        const now = client.phase();
+        if (now.kind === "lobby" || now.kind === "fighting") reloadIntoRoom(now.connection.code, now.connection.seed);
+      },
+    });
+  }, [client]);
   const phase = useSyncExternalStore(
     useCallback((changed: () => void) => client.subscribe(changed), [client]),
     useCallback(() => client.phase(), [client]),
@@ -77,23 +97,35 @@ export function useCoop(bridge: FightBridge): CoopHandle {
   const [, bump] = useState(0);
   const joined = useRef(false);
 
-  // A link with a room code in it joins by itself, which is also how a guest comes back after the seed reload.
+  // A link with a room code in it joins by itself, which is also how a page comes back after a reload. A tab that
+  // already holds a seat in that room takes it back instead of joining, so it keeps its name, its host seat and its
+  // ready, and so the room does not refuse it for using a name it is already using.
   useEffect(() => {
     if (joined.current) return;
     const code = codeInUrl();
-    const name = savedName();
-    if (code === null || name.trim().length === 0) return;
+    if (code === null) return;
     joined.current = true;
-    void client.join(code, name.trim());
-  }, [client]);
+    const held = savedSeat(code);
+    if (held !== null) {
+      client.resume(code, held, bridge.seed, bridge.startPhase);
+      return;
+    }
+    const name = savedName();
+    if (name.trim().length === 0) {
+      joined.current = false;
+      return;
+    }
+    void client.join(code, name.trim(), bridge.gear());
+  }, [client, bridge]);
 
-  // A guest on the wrong seed cannot share this fight, so it reloads onto the host's before anything starts.
+  // A guest on the wrong seed cannot share this fight, so it reloads onto the host's before anything starts. The
+  // seat is given up first, or the page that comes back would find its own name already in the room.
   useEffect(() => {
     if (phase.kind !== "lobby" && phase.kind !== "fighting") return;
     const { connection } = phase;
     if (connection.host || connection.seed === bridge.seed) return;
-    reloadOnto(connection);
-  }, [phase, bridge.seed]);
+    void client.leaveAndWait().then(() => reloadOnto(connection));
+  }, [phase, bridge.seed, client]);
 
   useEffect(() => {
     if (phase.kind !== "fighting") {

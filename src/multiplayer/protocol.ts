@@ -12,8 +12,12 @@ export const CODE_LENGTH = 6;
 export const MAX_PLAYERS = 8;
 export const NAME_MAX = 12;
 
-/** A guest whose state is older than this has stopped reporting, so the room drops them. */
-export const STALE_MS = 15_000;
+/**
+ * A seat with no stream is held this long before the room gives it up. It has to outlast a page reload, which for
+ * this app means loading the cache assets again, so it is generous: a friend who reloads or whose connection blips
+ * comes back to their own seat rather than to a room that has forgotten them.
+ */
+export const STALE_MS = 45_000;
 /** The server tells every stream to keep itself open this often, which also evicts dead connections. */
 export const HEARTBEAT_MS = 5_000;
 
@@ -69,7 +73,8 @@ export type Intent =
 export type ServerEvent =
   | Readonly<{ kind: "welcome"; you: PlayerId; code: RoomCode; seed: number; startPhase: number; roster: Roster }>
   | Readonly<{ kind: "roster"; roster: Roster }>
-  | Readonly<{ kind: "start"; seed: number; startPhase: number; at: number }>
+  | Readonly<{ kind: "start"; seed: number; startPhase: number; at: number; run: number }>
+  | Readonly<{ kind: "regroup"; run: number }>
   | Readonly<{ kind: "states"; states: readonly PlayerState[] }>
   | Readonly<{ kind: "authority"; authority: Authority }>
   | Readonly<{ kind: "intent"; from: PlayerId; intent: Intent }>
@@ -77,6 +82,25 @@ export type ServerEvent =
   | Readonly<{ kind: "ping" }>;
 
 export type EventKind = ServerEvent["kind"];
+
+/**
+ * Every kind, named once. A stream carries the kind as the event name, so a listener has to be added per kind, and a
+ * kind missing from this list would simply never arrive. Keying the record by the union makes leaving one out a
+ * compile error rather than a silence.
+ */
+const EVERY_KIND: Readonly<Record<EventKind, true>> = {
+  welcome: true,
+  roster: true,
+  start: true,
+  regroup: true,
+  states: true,
+  authority: true,
+  intent: true,
+  ended: true,
+  ping: true,
+};
+
+export const EVENT_KINDS: readonly EventKind[] = Object.keys(EVERY_KIND).filter((kind): kind is EventKind => kind in EVERY_KIND);
 
 const STYLES: readonly Style[] = ["melee", "ranged", "magic"];
 

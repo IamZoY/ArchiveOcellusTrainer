@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Rooms, randomFrom, rosterOf, statesOf, why } from "./rooms";
 import type { PlayerState } from "./protocol";
-import { CODE_LENGTH, MAX_PLAYERS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
+import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState } from "./protocol";
 
 /** A counter stands in for randomness so every code and id in a test is known in advance. */
 function counting() {
@@ -238,9 +238,92 @@ describe("gear", () => {
   });
 });
 
+describe("one name to a room", () => {
+  it("refuses a second player with the same name, however it is capitalised", () => {
+    const all = rooms();
+    const { room } = all.open("Zoy", 7, 1, 0);
+    expect(all.join(room.code, "Ziad", 0).ok).toBe(true);
+    expect(all.join(room.code, "Zoy", 0)).toMatchObject({ ok: false, why: { kind: "name-taken" } });
+    expect(all.join(room.code, "zOy", 0)).toMatchObject({ ok: false, why: { kind: "name-taken" } });
+    expect(room.seats.size).toBe(2);
+  });
+
+  it("frees the name once that player leaves, so a reload can come back as itself", () => {
+    const all = rooms();
+    const { room } = all.open("Zoy", 7, 1, 0);
+    const guest = all.join(room.code, "Ziad", 0);
+    if (!guest.ok) throw new Error("join failed");
+    all.leave(room.code, guest.value.seat.id, guest.value.seat.token);
+    expect(all.join(room.code, "Ziad", 0).ok).toBe(true);
+  });
+});
+
+describe("running it again", () => {
+  it("keeps the room, the code and the seed, and brings everyone back alive", () => {
+    const all = rooms();
+    const { room, seat: host } = all.open("Zoy", 4242, 3, 0);
+    const guest = all.join(room.code, "Ziad", 0);
+    if (!guest.ok) throw new Error("join failed");
+    const them = guest.value.seat;
+
+    all.setReady(room.code, host.id, host.token, true, 0);
+    all.setReady(room.code, them.id, them.token, true, 0);
+    all.start(room.code, host.id, host.token, 0);
+    all.judge(room.code, host.id, host.token, { tick: 9, targetId: them.id, hits: [], deaths: [them.id, host.id] }, 0);
+    expect(rosterOf(room).every((member) => member.dead)).toBe(true);
+
+    const again = all.restart(room.code, host.id, host.token, 1);
+    expect(again.ok).toBe(true);
+    expect(room.started).toBe(false);
+    expect(room.seed).toBe(4242);
+    expect(room.code).toHaveLength(CODE_LENGTH);
+    expect(room.seats.size).toBe(2);
+    expect(rosterOf(room).some((member) => member.dead)).toBe(false);
+    expect(room.runs).toBe(1);
+  });
+
+  it("leaves everyone ready, so the host starts the next run with one click", () => {
+    const all = rooms();
+    const { room, seat: host } = all.open("Zoy", 7, 1, 0);
+    all.setReady(room.code, host.id, host.token, true, 0);
+    all.start(room.code, host.id, host.token, 0);
+    all.restart(room.code, host.id, host.token, 1);
+    expect(rosterOf(room).every((member) => member.ready)).toBe(true);
+    expect(all.start(room.code, host.id, host.token, 2).ok).toBe(true);
+  });
+
+  it("is the host's call alone", () => {
+    const all = rooms();
+    const { room, seat: host } = all.open("Zoy", 7, 1, 0);
+    const guest = all.join(room.code, "Ziad", 0);
+    if (!guest.ok) throw new Error("join failed");
+    all.setReady(room.code, host.id, host.token, true, 0);
+    all.setReady(room.code, guest.value.seat.id, guest.value.seat.token, true, 0);
+    all.start(room.code, host.id, host.token, 0);
+    expect(all.restart(room.code, guest.value.seat.id, guest.value.seat.token, 1)).toMatchObject({ ok: false, why: { kind: "not-the-host" } });
+  });
+
+  it("clears the last run's reports, so nobody is drawn where they fell", () => {
+    const all = rooms();
+    const { room, seat } = all.open("Zoy", 7, 1, 0);
+    all.report(room.code, seat.id, seat.token, stateAt(40, { id: seat.id }), 0);
+    all.setReady(room.code, seat.id, seat.token, true, 0);
+    all.start(room.code, seat.id, seat.token, 0);
+    all.restart(room.code, seat.id, seat.token, 1);
+    expect(statesOf(room)).toHaveLength(0);
+  });
+});
+
+describe("the stream's event names", () => {
+  it("lists every kind, because a kind left out would never reach a client", () => {
+    // The names a browser listens for come from this list; the server writes the same names.
+    expect([...EVENT_KINDS].sort()).toEqual(["authority", "ended", "intent", "ping", "regroup", "roster", "start", "states", "welcome"]);
+  });
+});
+
 describe("rejection wording", () => {
   it("says something for every rejection", () => {
-    for (const kind of ["no-room", "full", "already-started", "not-a-member", "not-the-host", "bad-token", "not-ready"] as const) {
+    for (const kind of ["no-room", "full", "already-started", "not-a-member", "not-the-host", "bad-token", "not-ready", "name-taken"] as const) {
       expect(why({ kind })).toMatch(/\w/);
     }
   });

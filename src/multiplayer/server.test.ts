@@ -221,6 +221,37 @@ describe("waiting in a lobby", () => {
   }, 10000);
 });
 
+describe("a seat across a reload", () => {
+  it("keeps the host's seat, name and ready when their stream closes and comes back", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: host.playerId, token: host.token, ready: true });
+
+    const first = await listen(host);
+    await first.next("welcome");
+    first.close();
+    // A reload closes the stream and opens another. Nothing else happens in between.
+    await new Promise((done) => setTimeout(done, 300));
+
+    const second = await listen(host);
+    const welcome = await second.next("welcome");
+    const mine = welcome.roster.find((member) => member.id === host.playerId);
+    expect(mine).toMatchObject({ name: "Zoy", host: true, ready: true });
+    expect(welcome.roster.find((member) => member.id === guest.playerId)?.host).toBe(false);
+    second.close();
+  }, 10000);
+
+  it("still refuses a different person taking that name while the seat is held", async () => {
+    const host = await open("Zoy");
+    const stream = await listen(host);
+    await stream.next("welcome");
+    stream.close();
+    await new Promise((done) => setTimeout(done, 200));
+    const impostor = await post(`/mp/rooms/${host.code}/join`, { name: "Zoy" });
+    expect(impostor.status).toBe(409);
+  }, 10000);
+});
+
 describe("ready and start", () => {
   it("starts only when all are ready, and tells every stream", async () => {
     const host = await open("Zoy", 99, 4);
@@ -293,6 +324,53 @@ describe("gear", () => {
     const welcome = await stream.next("welcome");
     expect(welcome.roster.find((member) => member.id === guest.playerId)?.gear).toBeNull();
     stream.close();
+  }, 10000);
+});
+
+describe("one name to a room", () => {
+  it("turns away a second player with the same name and says why", async () => {
+    const host = await open("Zoy");
+    const again = await post(`/mp/rooms/${host.code}/join`, { name: "Zoy" });
+    expect(again.status).toBe(409);
+    expect(again.json()).toMatchObject({ error: expect.stringContaining("already uses that name") });
+  });
+});
+
+describe("running it again", () => {
+  it("puts everyone back in the lobby on the host's word, and starts again from there", async () => {
+    const host = await open("Zoy", 4242, 2);
+    const guest = await join(host.code, "Ziad");
+    const guestStream = await listen(guest);
+    await guestStream.next("welcome");
+
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: host.playerId, token: host.token, ready: true });
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: guest.playerId, token: guest.token, ready: true });
+    await post(`/mp/rooms/${host.code}/start`, { playerId: host.playerId, token: host.token });
+    const first = await guestStream.next("start");
+    expect(first.run).toBe(0);
+
+    const seen = guestStream.count();
+    const again = await post(`/mp/rooms/${host.code}/again`, { playerId: host.playerId, token: host.token });
+    expect(again.status).toBe(200);
+
+    const regroup = await guestStream.next("regroup", seen);
+    expect(regroup.run).toBe(1);
+
+    const restarted = await post(`/mp/rooms/${host.code}/start`, { playerId: host.playerId, token: host.token });
+    expect(restarted.status).toBe(200);
+    const second = await guestStream.next("start", guestStream.count() - 1);
+    expect(second.seed).toBe(4242);
+    guestStream.close();
+  }, 10000);
+
+  it("refuses a guest who tries to restart the fight", async () => {
+    const host = await open("Zoy");
+    const guest = await join(host.code, "Ziad");
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: host.playerId, token: host.token, ready: true });
+    await post(`/mp/rooms/${host.code}/ready`, { playerId: guest.playerId, token: guest.token, ready: true });
+    await post(`/mp/rooms/${host.code}/start`, { playerId: host.playerId, token: host.token });
+    const sneaky = await post(`/mp/rooms/${host.code}/again`, { playerId: guest.playerId, token: guest.token });
+    expect(sneaky.status).toBe(409);
   }, 10000);
 });
 

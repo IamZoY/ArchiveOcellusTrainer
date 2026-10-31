@@ -5,6 +5,7 @@
  * this player's state at it each tick; what arrives from the stream is handed on as plain data for the page to apply.
  */
 import type { Authority, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style } from "./protocol";
+import { EVENT_KINDS } from "./protocol";
 
 export type Connection = Readonly<{
   code: RoomCode;
@@ -27,11 +28,13 @@ export type Handlers = Readonly<{
   authority(authority: Authority): void;
   intent(from: PlayerId, intent: Intent): void;
   ended(reason: string): void;
+  /** The host has put the room back in its lobby to run the fight again. */
+  regroup(run: number): void;
 }>;
 
 export type Report = Readonly<{ tick: number; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; prayer: Style | null; dead: boolean }>;
 
-const NO_HANDLERS: Handlers = { states: () => {}, authority: () => {}, intent: () => {}, ended: () => {} };
+const NO_HANDLERS: Handlers = { states: () => {}, authority: () => {}, intent: () => {}, ended: () => {}, regroup: () => {} };
 
 async function ask(url: string, body: unknown): Promise<unknown> {
   const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -52,6 +55,38 @@ function connectionFrom(raw: unknown, host: boolean): Connection {
   const startPhase = Number(get("startPhase"));
   if (!code || !you || !token || !Number.isFinite(seed)) throw new Error("the room server answered with something unusable");
   return { code, you, token, seed, startPhase, host: get("host") === true || host };
+}
+
+const SEAT_KEY = "archive-ocellus-coop-seat";
+
+/** The seat this tab holds, kept across a reload so the same person comes back rather than a new one. */
+function rememberSeat(connection: Connection): void {
+  try {
+    sessionStorage.setItem(SEAT_KEY, JSON.stringify({ code: connection.code, you: connection.you, token: connection.token }));
+  } catch {
+    // a private window refuses storage; a reload then rejoins as a new seat
+  }
+}
+
+export function savedSeat(code: string): Readonly<{ you: string; token: string }> | null {
+  try {
+    const raw: unknown = JSON.parse(sessionStorage.getItem(SEAT_KEY) ?? "null");
+    const held = typeof raw === "object" && raw !== null ? raw : null;
+    if (held === null || Reflect.get(held, "code") !== code) return null;
+    const you = String(Reflect.get(held, "you"));
+    const token = String(Reflect.get(held, "token"));
+    return you && token ? { you, token } : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetSeat(): void {
+  try {
+    sessionStorage.removeItem(SEAT_KEY);
+  } catch {
+    // nothing held it in the first place
+  }
 }
 
 export class RoomClient {
@@ -75,8 +110,9 @@ export class RoomClient {
     return this.current;
   }
 
+  /** Merges, so the page and the running session can each listen for what they care about. */
   on(handlers: Partial<Handlers>): void {
-    this.handlers = { ...NO_HANDLERS, ...handlers };
+    this.handlers = { ...this.handlers, ...handlers };
   }
 
   private set(phase: Phase): void {
@@ -110,18 +146,28 @@ export class RoomClient {
     this.set({ kind: "failed", error: error instanceof Error ? error.message : "could not reach the room server" });
   }
 
+  /** Comes back to a seat this tab already holds. The stream's welcome fills in what the seat does not carry. */
+  resume(code: RoomCode, seat: Readonly<{ you: string; token: string }>, seed: number, startPhase: number): void {
+    this.begin({ code, you: seat.you, token: seat.token, seed, startPhase, host: false });
+  }
+
   private begin(connection: Connection): void {
     this.connection = connection;
+    rememberSeat(connection);
     this.roster = [];
-    this.set({ kind: "lobby", connection, roster: [] });
+    // Still connecting until the stream says welcome: showing an empty lobby for a seat the room has forgotten is
+    // worse than saying so, because it looks like everyone left.
+    this.set({ kind: "connecting" });
     const stream = new EventSource(this.url(`/rooms/${connection.code}/events?playerId=${connection.you}&token=${connection.token}`));
     this.stream = stream;
     stream.onmessage = (message) => this.take(message.data);
-    for (const kind of ["welcome", "roster", "start", "states", "authority", "intent", "ended", "ping"]) {
+    for (const kind of EVENT_KINDS) {
       stream.addEventListener(kind, (event) => this.take(Reflect.get(event, "data")));
     }
     stream.onerror = () => {
-      if (this.current.kind === "connecting") this.fail(new Error("the room server closed the stream"));
+      if (this.current.kind !== "connecting") return;
+      forgetSeat();
+      this.fail(new Error("that room is no longer there; host or join a new one"));
     };
   }
 
@@ -136,10 +182,15 @@ export class RoomClient {
     const connection = this.connection;
     if (!connection) return;
     switch (event.kind) {
-      case "welcome":
+      case "welcome": {
+        const mine = event.roster.find((member) => member.id === event.you);
+        const settled: Connection = { ...connection, seed: event.seed, startPhase: event.startPhase, host: mine?.host === true };
+        this.connection = settled;
+        rememberSeat(settled);
         this.roster = event.roster;
-        this.set({ kind: "lobby", connection, roster: event.roster });
+        this.set({ kind: "lobby", connection: settled, roster: event.roster });
         return;
+      }
       case "roster": {
         this.roster = event.roster;
         this.set(this.current.kind === "fighting" ? { ...this.current, roster: event.roster } : { kind: "lobby", connection, roster: event.roster });
@@ -156,6 +207,10 @@ export class RoomClient {
         return;
       case "intent":
         this.handlers.intent(event.from, event.intent);
+        return;
+      case "regroup":
+        this.handlers.regroup(event.run);
+        this.set({ kind: "lobby", connection, roster: this.roster });
         return;
       case "ended":
         this.handlers.ended(event.reason);
@@ -209,8 +264,22 @@ export class RoomClient {
     this.post("/authority", { authority });
   }
 
+  /** Host only: puts the room back in its lobby so the same team can run the fight again. */
+  again(): void {
+    this.post("/again", {});
+  }
+
+  /** Waits for the seat to be given up, so a reload can rejoin under the same name without racing itself. */
+  async leaveAndWait(): Promise<void> {
+    const seat = this.seat();
+    const connection = this.connection;
+    if (seat && connection) await ask(this.url(`/rooms/${connection.code}/leave`), seat).catch(() => {});
+    this.leave();
+  }
+
   leave(): void {
     this.post("/leave", {});
+    forgetSeat();
     this.stream?.close();
     this.stream = null;
     this.connection = null;
