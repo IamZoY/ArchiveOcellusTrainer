@@ -12,6 +12,7 @@ export type Side = "east" | "south" | "west" | "north";
 export type P1Cause =
   | Readonly<{ kind: "volley"; element: Element }>
   | Readonly<{ kind: "blast" }>
+  | Readonly<{ kind: "crack" }>
   | Readonly<{ kind: "strike" }>
   | Readonly<{ kind: "block" }>
   | Readonly<{ kind: "line" }>
@@ -59,8 +60,7 @@ export type P1Roll =
   | "shout"
   | "side"
   | "blast-graphic"
-  | "crack-sound"
-  | "strike-heal";
+  | "crack-sound";
 
 export type P1Types = Readonly<{
   tile: ATile;

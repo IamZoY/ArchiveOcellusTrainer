@@ -10,14 +10,16 @@ import { CORNERS, MIDDLE, QUADRANTS, at, bodyCentre, clockwise, distanceToBody, 
 import { formatTicks } from "../options";
 import { seqSourced as SEQ, soundSourced as SOUND, spotSourced as SPOT } from "../data/looks";
 import { T, V, upTo } from "./data";
-import type { Element, P1Ctx, P1Outcome, P1Stage, Side, Tendril, P1Types } from "./types";
+import type { Element, P1Cause, P1Ctx, P1Outcome, P1Stage, Side, Tendril, P1Types } from "./types";
 import type { P1World } from "./world";
 
 const INTRO = "Now... ascension...";
 const CHALLENGE = "Challenge started: Ocellus.";
 const ENDING_LINE = "You... will disappear...";
-const STRIKE_MANY = "Embrace... annihilation...";
+/** His strike's shout by shot count: up to 2 "Death... awaits...", 3 "Eradicate..." (ten raid logs); more is unrecorded. */
 const STRIKE_ONE = "Death... awaits...";
+const STRIKE_THREE = "Eradicate...";
+const STRIKE_MANY = "Embrace... annihilation...";
 const PLAYER = at(0, -9);
 const FACE_IN = at(0, 2);
 const FACE_OUT = at(0, 10);
@@ -46,6 +48,8 @@ function pair(list: readonly Sourced<TickSpan>[]): readonly [Sourced<TickSpan>, 
  */
 export class P1Script<E extends Entries> implements Script<E, P1Types> {
   meter = 0;
+  /** Cracks that have chipped you since you were last healed for them. */
+  private chipsOwed = 0;
   private element: Element = "fire";
   private stage: P1Stage = { kind: "arriving" };
   private ending = false;
@@ -132,15 +136,18 @@ export class P1Script<E extends Entries> implements Script<E, P1Types> {
     m.boss.say(ENDING_LINE, T.introLasts);
     m.log({ kind: "ending", at: m.now });
     const atMiddle = same(m.boss.at, MIDDLE);
+    const lands = plus(T.endingTeleportAfter, T.endingLandAfter);
     if (!atMiddle) {
-      m.boss.play(SEQ.p1TeleportOut);
-      m.boss.spotanim(SPOT.p1TeleportOut, "teleport");
-      m.afterPhase(T.oneTick, (n) => n.boss.show(false));
-      m.afterPhase(T.teleportInAfter, (n) => n.boss.place(MIDDLE));
-      m.afterPhase(plus(T.teleportInAfter, T.oneTick), (n) => this.land(n));
+      m.afterPhase(T.endingTeleportAfter, (n) => {
+        n.boss.play(SEQ.p1TeleportOut);
+        n.boss.spotanim(SPOT.p1TeleportOut, "teleport");
+      });
+      m.afterPhase(plus(T.endingTeleportAfter, T.oneTick), (n) => n.boss.show(false));
+      m.afterPhase(minus(lands, T.oneTick), (n) => n.boss.place(MIDDLE));
+      m.afterPhase(lands, (n) => this.land(n));
     }
-    const landed = atMiddle ? T.transformAfterLanding : plus(plus(T.teleportInAfter, T.oneTick), T.transformAfterLanding);
-    const leave = atMiddle ? minus(T.p2After, T.oneTick) : plus(plus(T.teleportInAfter, T.oneTick), minus(T.p2After, T.oneTick));
+    const landed = atMiddle ? T.transformAtMiddleAfter : plus(lands, T.endingTransformAfterLanding);
+    const leave = plus(landed, minus(T.p2After, T.oneTick));
     m.afterPhase(landed, (n) => {
       n.boss.play(SEQ.p1Transformation);
       n.boss.spotanim(SPOT.p1ToP2, "transform");
@@ -382,14 +389,27 @@ export class P1Script<E extends Entries> implements Script<E, P1Types> {
     line.closed = true;
     this.lines = this.lines.filter((open) => open !== line);
     m.show({ kind: "cracks-end", tiles: line.tiles, growth: line.growth });
+    m.hit({ kind: "crack" }, V.closeChip);
+    this.chipsOwed++;
     const blocked = line.tiles.some((tile) => same(tile, m.player.tile));
     if (blocked) {
-      m.heal({ kind: "block" }, m.roll("block", V.blockHeal), "player");
+      this.payBack(m, { kind: "block" });
       return;
     }
     this.meter = Math.min(V.meterMax.value, this.meter + V.meterPerLine.value);
     m.heal({ kind: "line" }, V.healPerLine.value, "boss");
     m.show({ kind: "sound", id: m.pick("crack-sound", nonEmpty(SOUND.crackClosed.value)), at: m.boss.at });
+  }
+
+  /**
+   * A block, or the heal before his strike, gives back a chip's worth for each crack that has chipped you since: one
+   * chip owed healed 3 to 6, two mostly 7 to 10, three mostly 11 to 14, in 574 of 697 heals in ten raid logs.
+   */
+  private payBack(m: P1Ctx<E>, cause: Extract<P1Cause, { kind: "block" | "strike-open" }>): void {
+    let amount = 0;
+    for (let i = 0; i < this.chipsOwed; i++) amount += m.roll(cause.kind, V.closeChip);
+    this.chipsOwed = 0;
+    if (amount > 0) m.heal(cause, amount, "player");
   }
 
   private explode(m: P1Ctx<E>): void {
@@ -488,18 +508,21 @@ export class P1Script<E extends Entries> implements Script<E, P1Types> {
   private strike(m: P1Ctx<E>, next: Quadrant): void {
     if (this.ending) return;
     const shots = 1 + Math.floor(this.meter / V.meterPerExtraShot.value);
-    m.boss.say(shots > 1 ? STRIKE_MANY : STRIKE_ONE, T.introLasts);
+    m.boss.say(shots <= 2 ? STRIKE_ONE : shots === 3 ? STRIKE_THREE : STRIKE_MANY, T.introLasts);
     this.meter = 0;
     m.boss.overhead("protect-melee");
     m.log({ kind: "strike", at: m.now, shots });
-    m.after(T.oneTick, (n) => n.heal({ kind: "strike-open" }, n.roll("strike-heal", V.strikeHeal), "player"));
+    m.after(T.oneTick, (n) => this.payBack(n, { kind: "strike-open" }));
     m.after(plus(T.oneTick, T.oneTick), (n) => {
       n.boss.play(SEQ.p1Expend);
       n.boss.facePlayer();
       n.show({ kind: "strike", shots, flight: T.oneTick.value });
-      n.after(T.oneTick, (h) => {
-        for (let i = 0; i < shots; i++) h.hit({ kind: "strike" }, V.strikeDamage);
-      });
+      n.after(T.oneTick, (h) => h.hit({ kind: "strike" }, V.strikeDamage));
+      if (shots > 1) {
+        n.after(plus(T.oneTick, T.oneTick), (h) => {
+          for (let i = 1; i < shots; i++) h.hit({ kind: "strike" }, V.strikeDamage);
+        });
+      }
     });
     m.after(T.walkOnAfterShout, (n) => {
       if (this.ending) return;

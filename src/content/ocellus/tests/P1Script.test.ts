@@ -92,7 +92,7 @@ describe("phase 1's first walk", () => {
     ]);
   });
 
-  test("standing within four tiles makes that first shot the near one, and it lands 3 ticks later", () => {
+  test("standing within three tiles of his body makes that first shot the near one, and it lands 3 ticks later", () => {
     const f = startP1({ practice: false });
     close = f.close;
     f.tickTo(1);
@@ -106,6 +106,16 @@ describe("phase 1's first walk", () => {
       hits: [[7, 4, 95, null]],
       here: at(0, -5),
     });
+  });
+  test("4 tiles off his body is far: the shot flies 4 ticks, as within 4 of his middle tile is the 3-tick shot", () => {
+    const f = startP1({ practice: false });
+    close = f.close;
+    f.tickTo(1);
+    f.player().hop(at(0, -7));
+    f.tickTo(8);
+    const shot = f.looks("projectile")[0];
+    if (!shot) throw new Error("the first volley drew no shot");
+    expect({ near: shot[1].near, flight: shot[1].flight, landed: hits(f, "volley").map(([tick]) => tick) }).toEqual({ near: false, flight: 4, landed: [8] });
   });
 });
 
@@ -151,7 +161,7 @@ describe("phase 1's corners", () => {
     });
   });
 
-  test("standing on a crack as it closes heals 10 and does not fill the meter; the next crack does", () => {
+  test("every crack that closes chips you 3 to 5; standing on it also heals you and does not fill the meter", () => {
     const f = startP1({ practice: false });
     close = f.close;
     f.tickTo(15);
@@ -168,12 +178,33 @@ describe("phase 1's corners", () => {
     }).toEqual({
       crack: at(5, 4),
       healed: [
-        [20, "player", 10, "block"],
-        [22, "boss", 2, "line"],
+        [20, "player", 3, "block"],
+        [22, "boss", 8, "line"],
       ],
-      hp: 81,
+      hp: 66,
       boss: 2500,
-      meter: 2,
+      meter: 8,
+    });
+  });
+
+  test("blocking after a crack you left open pays back both chips: two rolls of 3 to 5", () => {
+    const f = startP1({ practice: false });
+    close = f.close;
+    f.tickTo(17);
+    const second = f.looks("cracks")[1]?.[1].tiles[0];
+    if (!second) throw new Error("the second line has no tile");
+    f.player().hop(second);
+    f.tickTo(22);
+    // Ten raid logs: a block owed two chips healed mostly 7 to 10.
+    expect({ chips: hits(f, "crack").map(([tick, applied]) => [tick, applied]), healed: healed(f) }).toEqual({
+      chips: [
+        [20, 5],
+        [22, 3],
+      ],
+      healed: [
+        [20, "boss", 8, "line"],
+        [22, "player", 8, "block"],
+      ],
     });
   });
 
@@ -183,7 +214,7 @@ describe("phase 1's corners", () => {
     f.tickTo(30);
     f.player().hop(at(5, 5));
     f.tickTo(34);
-    expect(hits(f, "blast")).toEqual([[34, 30, 41, null]]);
+    expect(hits(f, "blast")).toEqual([[34, 33, 8, null]]);
   });
 });
 
@@ -209,7 +240,7 @@ describe("phase 1's health thresholds", () => {
     });
   });
 
-  test("66% on the first volley sends him to the middle, and the strike lands 43 ticks later through Protect from Magic", () => {
+  test("66% on the first volley sends him to the middle, and the eight beat cracks left open charge a three-shot strike", () => {
     const f = startP1();
     close = f.close;
     prayMagic(f);
@@ -236,9 +267,14 @@ describe("phase 1's health thresholds", () => {
         [8, at(-1, -1), false],
       ],
       middle: [4],
-      strike: [[44, 1]],
-      said: [[44, "Death... awaits..."]],
-      hits: [[47, 18, 81, "magic"]],
+      // Eight unblocked cracks, 8 each, fill 64 of meter: two more shots, landing the tick after the first.
+      strike: [[44, 3]],
+      said: [[44, "Eradicate..."]],
+      hits: [
+        [47, 18, 81, "magic"],
+        [48, 18, 63, "magic"],
+        [48, 19, 44, "magic"],
+      ],
       // Fight logs L1, L3 to L8: his first volley 9 ticks after "Death... awaits...", 11 of 11.
       volley: [53],
     });
@@ -280,7 +316,7 @@ describe("phase 1 ends", () => {
     close = null;
   });
 
-  test("hitting 0 off the middle hides him, lands him 5 ticks later, and phase 2's tick 0 is 12 ticks after the fall", () => {
+  test("hitting 0 off the middle teleports him 2 ticks on, lands him 3 after, and phase 2's tick 0 is 14 ticks after the fall", () => {
     const f = startP1();
     close = f.close;
     f.tickTo(2);
@@ -291,7 +327,7 @@ describe("phase 1 ends", () => {
       f.tickOnce();
       fight += 1;
       if (f.region.current !== "p1") break;
-      if (fight === 3 || fight === 4 || fight === 7 || fight === 8) frames.push([fight, `${f.bossAt().x},${f.bossAt().z},${f.live().boss.hidden ? "hidden" : "shown"}`]);
+      if (fight === 3 || fight === 6 || fight === 7 || fight === 8) frames.push([fight, `${f.bossAt().x},${f.bossAt().z},${f.live().boss.hidden ? "hidden" : "shown"}`]);
     }
     const leaving = f.ofKind("leaving").map(([tick]) => tick);
     const ending = f.ofKind("ending").map(([tick]) => tick);
@@ -300,18 +336,18 @@ describe("phase 1 ends", () => {
       ending: [3],
       frames: [
         [3, "-1,-4,shown"],
-        [4, "-1,-4,hidden"],
+        [6, "-1,-4,hidden"],
         [7, "-1,-1,hidden"],
         [8, "-1,-1,shown"],
       ],
-      leaving: [14],
-      next: 14,
+      leaving: [16],
+      next: 16,
       phase: "p2",
       p2: 0,
     });
   });
 
-  test("hitting 0 already on the middle skips the teleport and phase 2's tick 0 is 7 ticks after the fall", () => {
+  test("hitting 0 already on the middle skips the teleport and phase 2's tick 0 is 10 ticks after the fall", () => {
     const f = startP1();
     close = f.close;
     f.tickTo(2);
@@ -332,8 +368,8 @@ describe("phase 1 ends", () => {
         [4, "-1,-1,shown"],
         [6, "-1,-1,shown"],
       ],
-      leaving: [9],
-      next: 9,
+      leaving: [12],
+      next: 12,
       phase: "p2",
       p2: 0,
     });
@@ -342,9 +378,10 @@ describe("phase 1 ends", () => {
   test("a lethal volley removes him when the death timer ends, and the dialog is the death line", () => {
     const f = startP1({ practice: false });
     close = f.close;
-    f.tickTo(77);
+    // Each closing crack chips 3 to 5 as well, so the volley at 45 is the lethal one.
+    f.tickTo(45);
     const fallen = f.player().currentStats.hitpoint;
-    f.tickTo(81);
+    f.tickTo(49);
     expect({
       fallen,
       players: f.region.players.length,
@@ -353,8 +390,8 @@ describe("phase 1 ends", () => {
     }).toEqual({
       fallen: 0,
       players: 0,
-      outcome: { kind: "lost", at: 81 },
-      chat: [{ text: "Oh dear, you are dead!", colour: "#000000", tick: 81 }],
+      outcome: { kind: "lost", at: 49 },
+      chat: [{ text: "Oh dear, you are dead!", colour: "#000000", tick: 49 }],
     });
   });
 

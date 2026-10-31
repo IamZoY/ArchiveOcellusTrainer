@@ -228,8 +228,8 @@ export const P1 = {
   defenceBonuses: { stab: 150, slash: 95, crush: 60, magic: 100, range: 135 },
   startWalkAfter: 4,
   volleyEvery: 5,
-  /** Shots land 30 -> 95 cc within 4 tiles and 30 -> 125 cc beyond. [R] */
-  volleyLand: { near: 3, far: 4, nearWithin: 4 },
+  /** A shot flies 65 cc to a raider within 4 of his middle tile (3 of his body), 95 cc beyond: 735 of 735 in ten raid logs. */
+  volleyLand: { near: 3, far: 4, nearWithin: 3 },
   volleyDamage: range(1, 25),
   elementSwitchChance: 14 / 65,
   /** Corner script, from the charge C. [R] */
@@ -243,15 +243,13 @@ export const P1 = {
   walkOnAt: 21,
   shouts: ["Pointless...", "You... fail...", "Unworthy..."],
   blastRadius: 2,
-  blastDamage: range(28, 30),
-  /**
-   * Standing on a crack as it closes blocks it and heals you: +16, +9, +13 on the blocker in [V] duo 13:31-13:35;
-   * "it'll heal all of the chip damage" (Bubba OSRS guide 1:21). [R]'s 3-5 every 2 ticks on blockers matches a burn
-   * left over from the room before ("You have been set alight!"), not the cracks.
-   */
-  blockHeal: range(9, 16),
-  meterPerLine: 2,
-  healPerLine: 2,
+  /** 25-35 on 41 raiders within 2 of him, ten raid logs. */
+  blastDamage: range(25, 35),
+  /** A closing crack hits every raider 3-5, on it or not: 1,745 hits on close ticks to 65 off them in five logs. */
+  closeChip: range(3, 5),
+  /** An unblocked crack heals him, and fills the meter, floor(8 / party) per raider off it: ten raid logs. Solo: 8. */
+  meterPerLine: 8,
+  healPerLine: 8,
   meterMax: 96,
   /** Middle phase at 66% and a quarter. [R] */
   thresholds: [0.66, 0.25],
@@ -267,20 +265,26 @@ export const P1 = {
   beatLineCloses: [4, 6],
   beatExplodeAfter: 6,
   strikeShoutAfterLastExplode: 2,
-  strikeHeal: range(4, 8),
   strikeHitAfterShout: 3,
   strikeDamage: range(17, 19),
-  /** One more shot per 24 of meter (unverified past 10 of 96: never recorded). [R] */
+  /** One more shot per 24 of meter: 22 gave 1 shot, 27, 30 and 44 gave 2, 58 gave 3, ten raid logs. */
   meterPerExtraShot: 24,
   /**
    * After the strike's "Death... awaits..." his first volley comes 9 ticks on: 11 of 11 strikes in fight logs L1, L3 to
    * L8 (e.g. L1.txt "Death... awaits..." at P1 +139, anim 14806 at +148), and 2 of 2 in a 2026-10-30 raid log.
    */
   walkOnAfterShout: 9,
-  /** Next corner: anticlockwise 10, clockwise 3, across 6 of 19 recorded. [R] */
-  routeWeights: { anticlockwise: 10, clockwise: 3, across: 6 },
+  /** Next corner: anticlockwise 10, clockwise 3, across 6 of 19 recorded [R], and 25, 3, 8 of 36 in ten raid logs. */
+  routeWeights: { anticlockwise: 35, clockwise: 6, across: 14 },
   cornerLineLength: 9,
-  transformAfterLanding: 3,
+  /**
+   * From "You... will disappear...": in the middle he transforms 3 on; elsewhere he teleports 2 on, lands 3 later and
+   * transforms 2 after. Phase 2 opens 7 after the transformation: 10 of 10 raid logs.
+   */
+  transformAtMiddleAfter: 3,
+  endingTeleportAfter: 2,
+  endingLandAfter: 3,
+  endingTransformAfterLanding: 2,
   p2After: 7,
   /** The shortest wait a timer accepts. */
   oneTick: 1,

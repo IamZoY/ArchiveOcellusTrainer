@@ -11,6 +11,7 @@ export const P1_REPLAYS: Replays<P1Types, FightLog> = {
   volley: { kind: "log", log: "L1", at: "L1.txt:18 anim 14806 at P1 +30, script tick 4", ticks: [4] },
   blast: { kind: "unlogged", why: "a blast hits only a raider within two tiles of him, and the logs do not name it apart from other damage" },
   strike: { kind: "unlogged", why: "the strike's shot count follows the meter, which follows which cracks were stood on" },
+  crack: { kind: "unlogged", why: "the chip lands as each crack closes, and that tick follows the corner roll; L1.txt:122-131 has every raider take 3 to 5 on the close at P1 +46" },
   block: { kind: "unlogged", why: "a crack heals only the raider standing on it as it closes" },
   line: { kind: "unlogged", why: "a missed crack heals him by 2, which the logs do not separate from other heals" },
   "strike-open": { kind: "unlogged", why: "the green heal before the strike is one roll, and the logs do not mark it" },

@@ -41,7 +41,10 @@ export const T = {
   strikeShoutAfterLastExplode: ticks(D.strikeShoutAfterLastExplode),
   strikeHitAfterShout: ticks(D.strikeHitAfterShout),
   walkOnAfterShout: ticks(D.walkOnAfterShout),
-  transformAfterLanding: ticks(D.transformAfterLanding),
+  transformAtMiddleAfter: ticks(D.transformAtMiddleAfter),
+  endingTeleportAfter: ticks(D.endingTeleportAfter),
+  endingLandAfter: ticks(D.endingLandAfter),
+  endingTransformAfterLanding: ticks(D.endingTransformAfterLanding),
   p2After: ticks(D.p2After),
 } as const;
 
