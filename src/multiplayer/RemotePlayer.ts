@@ -7,9 +7,9 @@
  * click, and what it is praying, which it is told rather than choosing. Its combat, its own pathing and its click
  * markers stay off, because the client that owns it is the one that settles those.
  */
-import { Player } from "osrs-sdk";
-import type { Region } from "osrs-sdk";
-import type { Gear, PlayerState, Style, WireTile, Worn } from "./protocol";
+import { Player, Projectile } from "osrs-sdk";
+import type { Mob, Region, Unit } from "osrs-sdk";
+import type { Blow, Gear, PlayerState, Style, WireTile, Worn } from "./protocol";
 
 const PROTECTION: Readonly<Record<Style, string>> = { melee: "melee", ranged: "range", magic: "magic" };
 
@@ -18,6 +18,15 @@ const TELEPORTS_BEYOND = 3;
 
 /** Steps still to walk before the route is given up as hopeless and the figure is simply put where it belongs. */
 const GIVES_UP_AFTER = 5;
+
+/** Blows remembered per player, which only has to outlast the handful a report repeats. */
+const BLOWS_REMEMBERED = 64;
+
+/**
+ * The longest a relayed blow is held before it lands. No weapon's flight is near this, so it only ever bites on a
+ * report whose tick makes no sense here, and it is what stops such a hit sitting in the air for the rest of the run.
+ */
+const LANDS_WITHIN = 10;
 
 export type RemoteLook = Readonly<{ name: string; dead: boolean; prayer: Style | null; hp: number; maxHp: number }>;
 
@@ -48,6 +57,42 @@ export function walkStep(route: readonly WireTile[], at: WireTile): Step {
   return { route: rest, to: step, running: rest.length > 1 || far(step, at) > 1 };
 }
 
+/**
+ * Someone else's hit on the boss, landed here.
+ *
+ * It is a real projectile, which is the whole point: the boss judges it where it lands, with the overhead it has up
+ * and whatever reduction the moment calls for, exactly as it judged the same hit on the machine that threw it. Only
+ * the roll crosses the wire. The flight is carried rather than taken from the delay left, because a deflect is
+ * judged by what was up when the hit left, and by the time it gets here some of that flight is already spent.
+ */
+class RelayedBlow extends Projectile {
+  constructor(from: Unit, to: Unit, blow: Blow, delay: number) {
+    super(null, blow.damage, from, to, blow.style, { setDelay: delay, visuals: { hidden: true } });
+    this.totalDelay = blow.flight;
+  }
+}
+
+/**
+ * How long to hold a blow before it lands, counted from the tick this client is on rather than from the one it was
+ * thrown on. Both clients count ticks from the same start, so a blow told to land on tick 40 lands on tick 40 here
+ * too, however late in the tick the news arrived. One already due lands at the next chance, which is what a client
+ * that stalled for a whole tick deserves and still leaves the boss on the same hitpoints as everyone else's.
+ */
+export function blowDelay(blow: Blow, at: number): number {
+  return Math.min(LANDS_WITHIN, Math.max(1, blow.landsAt - at));
+}
+
+/** The blows in a report this client has not put on the boss yet. A report repeats a few, so most arrive twice. */
+export function freshBlows(blows: readonly Blow[], landed: ReadonlySet<number>): readonly Blow[] {
+  return blows.filter((blow) => !landed.has(blow.seq));
+}
+
+/** Keeps the newest `keep` of them, since a blow old enough to fall out of this will never be offered again. */
+export function prunedSeqs(landed: ReadonlySet<number>, keep: number): ReadonlySet<number> {
+  if (landed.size <= keep) return landed;
+  return new Set([...landed].sort((a, b) => a - b).slice(-keep));
+}
+
 export class RemotePlayer extends Player {
   private look: RemoteLook;
   /**
@@ -56,6 +101,8 @@ export class RemotePlayer extends Player {
    * latest one cuts the corners its owner walked round, or covers two tiles in a frame and reads as a stutter.
    */
   private route: readonly WireTile[] = [];
+  /** Which of their blows this client has already put on the boss. */
+  private landed: ReadonlySet<number> = new Set();
 
   constructor(region: Region, at: Readonly<{ x: number; y: number }>, private readonly who: string, name: string) {
     super(region, { x: at.x, y: at.y });
@@ -95,6 +142,7 @@ export class RemotePlayer extends Player {
     this.currentStats.prayer = this.stats.prayer;
     this.currentStats.run = MAX_RUN_ENERGY;
     if (state.swing !== "none") this.swing(state.swing === "special");
+    this.relay(state.blows);
     const queued = queueTile(this.route, this.location, state.tile);
     this.route = queued.route;
     if (queued.place) this.place(state.tile);
@@ -110,6 +158,29 @@ export class RemotePlayer extends Player {
     if (boss !== null) this.setAggro(boss);
     const chosen = special ? this.equipment.weapon?.specialAttackAnimationId ?? null : null;
     this.playAttackAnimation(chosen ?? this.attackAnimationId ?? undefined);
+  }
+
+  /**
+   * Their hits, put on the boss this client is fighting. This is what makes it one boss rather than two that look
+   * alike: the party's damage all lands on it, and it lands on the tick it landed on everywhere else.
+   */
+  private relay(blows: readonly Blow[]): void {
+    if (blows.length === 0) return;
+    const boss: Mob | null = this.region.primaryBoss;
+    if (boss === null) return;
+    const at = this.region.world.globalTickCounter;
+    const landed = new Set(this.landed);
+    for (const blow of freshBlows(blows, this.landed)) {
+      landed.add(blow.seq);
+      const shot = new RelayedBlow(this, boss, blow, blowDelay(blow, at));
+      boss.addProjectile(shot);
+      // Taking a hit in, the boss rules on the style: a phase that refuses melee zeroes it, another halves it. That
+      // ruling was already made on the machine that threw this one, and the number carried is what came out of it,
+      // so it is put back here rather than being made to pass the same gate twice. What the boss does at the moment
+      // of landing is a different ruling, and that one this client does make, as every other client does.
+      shot.damage = blow.damage;
+    }
+    this.landed = prunedSeqs(landed, BLOWS_REMEMBERED);
   }
 
   /** Puts the figure down where the room says it is, for when walking there is no longer honest. */

@@ -13,7 +13,7 @@ import type { Connection } from "./client";
 import { MultiplayerSession } from "./session";
 import type { FightPorts, LocalView } from "./session";
 import { codeInUrl } from "./Lobby";
-import type { Gear, PlayerId, Style, Swing, Worn } from "./protocol";
+import type { Blow, Gear, PlayerId, Style, Swing, Worn } from "./protocol";
 import type { Dresser } from "./RemotePlayer";
 
 const NAME_KEY = "archive-ocellus-coop-name";
@@ -56,6 +56,8 @@ export type FightBridge = Readonly<{
   worn(): Worn | null;
   /** Whether this player swung on the tick now being reported, and whether it was a special. */
   swing(): Swing;
+  /** The hits this player has in the air at the boss, so the party's damage all lands on the same boss. */
+  blows(): readonly Blow[];
   dress: Dresser;
 }>;
 
@@ -165,6 +167,7 @@ export function useCoop(bridge: FightBridge): CoopHandle {
           prayer: bridge.protection(),
           worn: bridge.worn(),
           swing: bridge.swing(),
+          blows: bridge.blows(),
         };
       },
       kill: () => {

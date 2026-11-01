@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Rooms, drainStates, randomFrom, rosterOf, statesOf, why } from "./rooms";
 import type { PlayerState } from "./protocol";
-import { CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS, isRoomCode, parseAuthority, parseGear, parseIntent, parseName, parsePlayerState, parseSetup, parseWorn } from "./protocol";
+import { BLOWS_MAX, BLOW_MAX_DAMAGE, CODE_LENGTH, EVENT_KINDS, MAX_PLAYERS, RECLAIM_AFTER_MS, STALE_MS, isRoomCode, keptBlows, parseAuthority, parseBlows, parseGear, parseIntent, parseName, parsePlayerState, parseSetup, parseWorn } from "./protocol";
 
 /** A counter stands in for randomness so every code and id in a test is known in advance. */
 function counting() {
@@ -12,7 +12,7 @@ function counting() {
 const rooms = () => new Rooms(counting());
 
 function stateAt(at: number, overrides: Partial<PlayerState> = {}): PlayerState {
-  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, worn: null, swing: "none", ...overrides };
+  return { id: "unused", tick: at, tile: { x: 1, y: 2 }, hp: 99, maxHp: 99, prayer: null, dead: false, worn: null, swing: "none", blows: [], ...overrides };
 }
 
 describe("room codes", () => {
@@ -281,6 +281,34 @@ describe("parsing what arrives from another machine", () => {
   it("carries a worn kit through a whole state, so a swap mid-fight crosses the wire", () => {
     expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1, worn: { weapon: 22547 } }, "me")?.worn).toEqual({ weapon: 22547 });
     expect(parsePlayerState({ tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1 }, "me")?.worn).toBeNull();
+  });
+
+  it("reads the hits someone has in the air, and drops only the entries it cannot make sense of", () => {
+    const blow = { seq: 1, landsAt: 40, flight: 2, damage: 30, style: "slash" };
+    expect(parseBlows([blow])).toEqual([{ seq: 1, landsAt: 40, flight: 2, damage: 30, style: "slash" }]);
+    expect(parseBlows([blow, { ...blow, seq: 2, flight: 0 }, { ...blow, seq: 3, landsAt: -1 }])).toHaveLength(1);
+    expect(parseBlows([{ ...blow, style: "sorcery" }])[0]?.style).toBe("typeless");
+    expect(parseBlows([{ ...blow, damage: 9_000_000 }])[0]?.damage).toBe(BLOW_MAX_DAMAGE);
+    expect(parseBlows(Array.from({ length: 40 }, (_, i) => ({ ...blow, seq: i })))).toHaveLength(BLOWS_MAX);
+    expect(parseBlows("a scythe")).toEqual([]);
+    expect(parseBlows(undefined)).toEqual([]);
+  });
+
+  it("carries blows through a whole state, and reads a state from a build that had none", () => {
+    const at = { tick: 1, tile: { x: 0, y: 0 }, hp: 1, maxHp: 1 };
+    expect(parsePlayerState({ ...at, blows: [{ seq: 7, landsAt: 9, flight: 1, damage: 12, style: "range" }] }, "me")?.blows).toEqual([
+      { seq: 7, landsAt: 9, flight: 1, damage: 12, style: "range" },
+    ]);
+    expect(parsePlayerState(at, "me")?.blows).toEqual([]);
+  });
+
+  it("repeats the blows just landed and keeps the newest when a report cannot hold them all", () => {
+    const blows = Array.from({ length: 10 }, (_, i) => ({ seq: i, landsAt: 30 + i, flight: 2, damage: 5, style: "slash" as const }));
+    const kept = keptBlows(blows, 34);
+    // 30 to 32 are too old to be worth repeating; 33 and 34 have just landed; 35 up are still on their way.
+    expect(kept.map((blow) => blow.landsAt)).toEqual([32, 33, 34, 35, 36, 37, 38, 39]);
+    // Nothing left in the air, so all it carries is the tail of landed ones, in case a report was lost.
+    expect(keptBlows(blows, 39).map((blow) => blow.landsAt)).toEqual([37, 38, 39]);
   });
 
   it("reads a fight a client could actually run, and refuses anything else", () => {

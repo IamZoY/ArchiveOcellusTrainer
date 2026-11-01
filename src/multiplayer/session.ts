@@ -6,7 +6,7 @@
  * which is what stops two machines disagreeing about who is still alive.
  */
 import type { RoomClient } from "./client";
-import type { Authority, Member, PlayerId, Style, Swing, Worn } from "./protocol";
+import type { Authority, Blow, Member, PlayerId, Style, Swing, Worn } from "./protocol";
 import { RemoteCrowd } from "./RemotePlayer";
 import type { Dresser, Known } from "./RemotePlayer";
 import type { RemotePlayer } from "./RemotePlayer";
@@ -18,6 +18,8 @@ export type LocalView = Readonly<{
   prayer: Style | null;
   worn: Worn | null;
   swing: Swing;
+  /** This player's hits still on their way to the boss, which every client's boss has to take as well. */
+  blows: readonly Blow[];
 }>;
 
 /** What the session needs of the running fight, kept narrow so it can be driven by a fake in a test. */
@@ -187,7 +189,7 @@ export class MultiplayerSession {
   }
 
   private report(at: number, local: LocalView): void {
-    this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead, worn: local.worn, swing: local.swing });
+    this.client.report({ tick: at, tile: local.tile, hp: local.hp, maxHp: local.maxHp, prayer: local.prayer, dead: this.spectating.dead, worn: local.worn, swing: local.swing, blows: local.blows });
   }
 
   /** Called by the page when the local fight killed this player, and by the host's verdict for a guest. */

@@ -4,7 +4,7 @@
  * It holds no opinion about the fight. The page asks it to open or join a room, reads the roster off it, and pushes
  * this player's state at it each tick; what arrives from the stream is handed on as plain data for the page to apply.
  */
-import type { Authority, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style, Swing, Worn } from "./protocol";
+import type { Authority, Blow, Gear, Intent, PlayerId, PlayerState, RoomCode, Roster, ServerEvent, Style, Swing, Worn } from "./protocol";
 import { EVENT_KINDS } from "./protocol";
 
 export type Connection = Readonly<{
@@ -33,7 +33,7 @@ export type Handlers = Readonly<{
   regroup(run: number): void;
 }>;
 
-export type Report = Readonly<{ tick: number; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; prayer: Style | null; dead: boolean; worn: Worn | null; swing: Swing }>;
+export type Report = Readonly<{ tick: number; tile: Readonly<{ x: number; y: number }>; hp: number; maxHp: number; prayer: Style | null; dead: boolean; worn: Worn | null; swing: Swing; blows: readonly Blow[] }>;
 
 const NO_HANDLERS: Handlers = { states: () => {}, authority: () => {}, intent: () => {}, ended: () => {}, regroup: () => {} };
 

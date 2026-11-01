@@ -18,6 +18,7 @@ export const LOBBY_CSS = `
 #coop_panel button:disabled { cursor: default; opacity: 0.55; }
 #coop_panel .coop-code { font-size: 23px; letter-spacing: 5px; font-weight: bold; text-align: center; padding: 5px 2px; user-select: all; }
 #coop_panel .coop-hint { opacity: 0.75; margin: 0; }
+#coop_panel .coop-link { width: 100%; box-sizing: border-box; font-size: 11px; text-transform: none; user-select: all; }
 #coop_panel .coop-error { color: #ff6b6b; margin: 0; }
 #coop_panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 /* Name on its own line, tags under it: side by side they shred into stacks of two letters in a panel this narrow. */
@@ -85,6 +86,96 @@ function putRoomInUrl(room: Readonly<{ code: string; seed: number; startPhase: n
     url.searchParams.set("phase", String(room.startPhase));
   }
   window.history.replaceState(null, "", url);
+}
+
+/**
+ * The link a friend opens to land in this room, on this fight, with the host's settings. The kit is left out: that
+ * part of the address bar is personal, and a link that overwrote it would hand everyone the host's loadout.
+ */
+export function fightLink(href: string): string {
+  const url = new URL(href);
+  url.searchParams.delete("tier");
+  url.searchParams.delete("weapon");
+  return url.toString();
+}
+
+/** Names in a sentence, as a person would read them out. */
+function spoken(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1] ?? ""}`;
+}
+
+/** What a page sitting in a room is waiting for, said in the names of the people it is waiting on. */
+export function waitingOn(roster: readonly Member[], you: PlayerId): string {
+  const unready = roster.filter((member) => !member.ready);
+  if (unready.length === 0) return "Everyone is ready.";
+  return `Waiting for ${spoken(unready.map((member) => (member.id === you ? "you" : member.name)))}.`;
+}
+
+/**
+ * Copies the link, or shows it to be copied by hand. A page served over plain http, which a fight hosted on a box
+ * of one's own usually is, has no clipboard to write to, and a link nobody can copy is worse than one on screen.
+ */
+function ShareLink() {
+  const [shown, setShown] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async (): Promise<void> => {
+    const link = fightLink(window.location.href);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setShown(null);
+    } catch {
+      setShown(link);
+    }
+  };
+
+  return (
+    <>
+      <button type="button" id="coop_link" onClick={() => void copy()}>
+        {copied ? "Link copied" : "Copy link"}
+      </button>
+      {shown !== null && <input className="coop-link" readOnly aria-label="Fight link" value={shown} onFocus={(event) => event.target.select()} />}
+    </>
+  );
+}
+
+/**
+ * What a page in a room shows in place of its own Start: the fight is the room's, so this says who it is still
+ * waiting on. The host gets the button, because the host is the one everyone else is waiting for.
+ */
+export function CoopWaiting({ client }: Readonly<{ client: RoomClient }>) {
+  const phase = useClient(client);
+  if (phase.kind === "connecting") {
+    return (
+      <section id="coop_wait" role="dialog" aria-labelledby="coop_wait_title">
+        <h2 id="coop_wait_title">Joining…</h2>
+        <p>Finding the room.</p>
+      </section>
+    );
+  }
+  if (phase.kind !== "lobby" || phase.running) return null;
+  const { roster, connection } = phase;
+  const ready = roster.find((member) => member.id === connection.you)?.ready === true;
+  const allReady = roster.length > 0 && roster.every((member) => member.ready);
+  return (
+    <section id="coop_wait" role="dialog" aria-labelledby="coop_wait_title">
+      <h2 id="coop_wait_title">{connection.host ? "Your party" : "Waiting for the party"}</h2>
+      <p>
+        {waitingOn(roster, connection.you)}
+        {!connection.host && allReady ? " The host starts the fight." : ""}
+      </p>
+      <button type="button" id="coop_wait_ready" onClick={() => client.setReady(!ready)}>
+        {ready ? "Not ready" : "I am ready"}
+      </button>
+      {connection.host && (
+        <button type="button" id="coop_wait_start" disabled={!allReady} onClick={() => client.start()}>
+          Start the fight
+        </button>
+      )}
+    </section>
+  );
 }
 
 function Roster({ roster, you, targetId }: Readonly<{ roster: readonly Member[]; you: PlayerId; targetId: PlayerId | null }>) {
@@ -189,7 +280,8 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
           <div className="coop-code" id="coop_code">
             {phase.connection.code}
           </div>
-          <p className="coop-hint">{phase.running ? "That fight is already under way." : "Give these six letters to your friends."}</p>
+          <p className="coop-hint">{phase.running ? "That fight is already under way." : "Give these six letters to your friends, or send them the link."}</p>
+          <ShareLink />
           <Roster roster={everyone} you={phase.connection.you} targetId={null} />
           <button type="button" id="coop_ready" onClick={() => client.setReady(!ready)}>
             {ready ? "Not ready" : "Ready"}
@@ -218,6 +310,7 @@ export function CoopPanel({ client, seed, startPhase, targetId, gear }: Readonly
       return (
         <div id="coop_panel">
           <Roster roster={phase.roster} you={phase.connection.you} targetId={targetId} />
+          <ShareLink />
           {phase.connection.host && (
             <button type="button" id="coop_again" onClick={() => client.again()}>
               Run it again

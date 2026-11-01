@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { queueTile, walkStep } from "./RemotePlayer";
-import type { WireTile } from "./protocol";
+import { blowDelay, freshBlows, prunedSeqs, queueTile, walkStep } from "./RemotePlayer";
+import type { Blow, WireTile } from "./protocol";
 
 const at = (x: number, y: number): WireTile => ({ x, y });
 
@@ -86,5 +86,35 @@ describe("walking the route", () => {
     const hops = walked(route, at(10, 10));
     expect(hops.every((hop) => hop === 1 || hop === 2)).toBe(true);
     expect(hops.reduce((all, hop) => all + hop, 0)).toBe(5);
+  });
+});
+
+describe("a blow relayed from another client", () => {
+  const blow = (seq: number, landsAt: number): Blow => ({ seq, landsAt, flight: 2, damage: 30, style: "slash" });
+
+  it("lands on the tick it was told to, counted from wherever this client has got to", () => {
+    expect(blowDelay(blow(1, 40), 38)).toBe(2);
+    expect(blowDelay(blow(1, 40), 39)).toBe(1);
+  });
+
+  it("holds a blow no longer than a flight could be, so a nonsense tick cannot park one in the air", () => {
+    expect(blowDelay(blow(1, 4000), 10)).toBe(10);
+  });
+
+  it("lands at the next chance when the news arrives too late, rather than never", () => {
+    expect(blowDelay(blow(1, 40), 40)).toBe(1);
+    expect(blowDelay(blow(1, 40), 46)).toBe(1);
+  });
+
+  it("is applied once, however many reports repeat it", () => {
+    const landed = new Set([1, 2]);
+    expect(freshBlows([blow(1, 40), blow(2, 41), blow(3, 42)], landed)).toEqual([blow(3, 42)]);
+    expect(freshBlows([blow(1, 40)], landed)).toEqual([]);
+  });
+
+  it("forgets only the blows too old to be offered again", () => {
+    const kept = prunedSeqs(new Set([1, 2, 3, 4, 5]), 3);
+    expect([...kept].sort((a, b) => a - b)).toEqual([3, 4, 5]);
+    expect(prunedSeqs(new Set([7, 8]), 3)).toEqual(new Set([7, 8]));
   });
 });

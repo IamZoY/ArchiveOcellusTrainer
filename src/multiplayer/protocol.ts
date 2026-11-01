@@ -37,6 +37,35 @@ export type Style = "melee" | "ranged" | "magic";
 /** What a player did with their weapon on one tick, which is all anyone else needs to play the same animation. */
 export type Swing = "none" | "attack" | "special";
 
+/** How many of a player's blows one report carries: enough that a dropped frame costs the boss nothing. */
+export const BLOWS_MAX = 8;
+/** No hit in this fight comes near this. It is here so a bad frame cannot empty the boss in one line. */
+export const BLOW_MAX_DAMAGE = 1000;
+
+/** How long a landed blow is still repeated in reports, so a frame lost on the way costs the boss nothing. */
+export const BLOWS_REPEATED_FOR = 2;
+
+/** The SDK's own attack styles, which is what the boss judges a deflect by. */
+export type BlowStyle = "stab" | "slash" | "crush" | "range" | "magic" | "typeless";
+
+/**
+ * One hit on the boss, said while it is still in the air.
+ *
+ * The damage is the roll the thrower's own weapon made; what the boss then does with it, deflect, reduce or ignore,
+ * every client works out for itself and all of them agree, because the fight they are judging it in is the same.
+ * `landsAt` is a world tick, which every client counts from the same start, so the blow lands on that tick on every
+ * machine rather than whenever the news happened to arrive. `flight` is how long it has been in the air, since a
+ * deflect is judged by the overhead that was up when it left.
+ */
+export type Blow = Readonly<{
+  /** The thrower's own count of its blows, so one is never applied twice nor mistaken for another. */
+  seq: number;
+  landsAt: number;
+  flight: number;
+  damage: number;
+  style: BlowStyle;
+}>;
+
 export type WireTile = Readonly<{ x: number; y: number }>;
 
 /**
@@ -56,6 +85,8 @@ export type PlayerState = Readonly<{
   dead: boolean;
   worn: Worn | null;
   swing: Swing;
+  /** The hits this player has in the air at the boss, so every client's boss takes the whole party's damage. */
+  blows: readonly Blow[];
 }>;
 
 /**
@@ -126,6 +157,7 @@ export const EVENT_KINDS: readonly EventKind[] = Object.keys(EVERY_KIND).filter(
 
 const STYLES: readonly Style[] = ["melee", "ranged", "magic"];
 const SWINGS: readonly Swing[] = ["none", "attack", "special"];
+const BLOW_STYLES: readonly BlowStyle[] = ["stab", "slash", "crush", "range", "magic", "typeless"];
 
 const isRecord = (raw: unknown): raw is Readonly<Record<string, unknown>> => typeof raw === "object" && raw !== null && !Array.isArray(raw);
 
@@ -155,6 +187,40 @@ export function parseSwing(raw: unknown): Swing {
   return SWINGS.find((swing) => swing === raw) ?? "none";
 }
 
+/** A style this build does not know is read as typeless, which no overhead deflects: an unjudged hit, not a lost one. */
+export function parseBlowStyle(raw: unknown): BlowStyle {
+  return BLOW_STYLES.find((style) => style === raw) ?? "typeless";
+}
+
+function parseBlow(raw: unknown): Blow | null {
+  const seq = count(field(raw, "seq"));
+  const landsAt = count(field(raw, "landsAt"));
+  const flight = count(field(raw, "flight"));
+  const damage = count(field(raw, "damage"));
+  if (seq === null || landsAt === null || flight === null || flight === 0 || damage === null) return null;
+  return { seq, landsAt, flight, damage: Math.min(damage, BLOW_MAX_DAMAGE), style: parseBlowStyle(field(raw, "style")) };
+}
+
+/** Blows that do not parse are dropped one by one: a bad entry costs that hit, never the rest of the report. */
+export function parseBlows(raw: unknown): readonly Blow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, BLOWS_MAX).flatMap((entry) => {
+    const blow = parseBlow(entry);
+    return blow === null ? [] : [blow];
+  });
+}
+
+/**
+ * What one report carries: every blow still in the air, and the last couple of ticks of landed ones behind them.
+ * Repeating the landed ones is what makes a lost frame cost nothing, and the ones still in the air are the ones
+ * nobody can afford to lose, so a report too full to hold them all drops the oldest landed instead.
+ */
+export function keptBlows(blows: readonly Blow[], at: number): readonly Blow[] {
+  const landed = blows.filter((blow) => blow.landsAt <= at && blow.landsAt >= at - BLOWS_REPEATED_FOR);
+  const air = blows.filter((blow) => blow.landsAt > at);
+  return [...landed, ...air].slice(-BLOWS_MAX);
+}
+
 export function parseTile(raw: unknown): WireTile | null {
   const x = finite(field(raw, "x"));
   const y = finite(field(raw, "y"));
@@ -181,7 +247,8 @@ export function parsePlayerState(raw: unknown, id: PlayerId): PlayerState | null
   if (at === null || tile === null || hp === null || maxHp === null || maxHp === 0) return null;
   const prayer = parseStyle(field(raw, "prayer"));
   const swing = parseSwing(field(raw, "swing"));
-  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer, dead: field(raw, "dead") === true, worn: parseWorn(field(raw, "worn")), swing };
+  const blows = parseBlows(field(raw, "blows"));
+  return { id, tick: at, tile, hp: Math.min(hp, maxHp), maxHp, prayer, dead: field(raw, "dead") === true, worn: parseWorn(field(raw, "worn")), swing, blows };
 }
 
 export function parseIntent(raw: unknown): Intent | null {

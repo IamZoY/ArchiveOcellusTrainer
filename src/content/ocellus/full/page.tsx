@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Player } from "osrs-sdk";
-import { CoopPanel, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby";
+import { CoopPanel, CoopWaiting, LOBBY_CSS, SpectateBanner } from "../../../multiplayer/Lobby";
 import { RemotePlayer } from "../../../multiplayer/RemotePlayer";
 import { useCoop } from "../../../multiplayer/useCoop";
 import type { FightBridge } from "../../../multiplayer/useCoop";
 import type { Swing, Worn } from "../../../multiplayer/protocol";
+import { BlowBook } from "../../../multiplayer/blows";
 import { CacheRender, TrainerInstance, Viewport, dressPlayer, parseLoadout } from "osrs-sdk";
 import type { EquipmentSlot, Location3, Region, TrainerLoadingState } from "osrs-sdk";
 import { GameOverlay, RuneScapeButton, TrainerApp } from "osrs-sdk-react";
@@ -915,6 +916,9 @@ export function FullFightPage() {
   // only ever climbs back on its own. Read once a tick and remembered, since the report is asked for more than once.
   const swung = useRef({ tick: -1, delay: 0, special: 0, swing: "none" as Swing });
 
+  // What this player has thrown at the boss, which the room carries so one boss takes the whole party's damage.
+  const thrown = useRef(new BlowBook());
+
   // What a shared fight needs of this page: a tick to ride, the local player to report, and the aim to redirect.
   const bridge: FightBridge = useMemo(
     () => ({
@@ -958,6 +962,14 @@ export function FullFightPage() {
         const swing: Swing = delay <= seen.delay || seen.tick < 0 ? "none" : special < seen.special ? "special" : "attack";
         swung.current = { tick: at, delay, special, swing };
         return swing;
+      },
+      // Every hit of this player's that is still on its way to the boss, plus the ones just landed in case a frame
+      // was lost. Only the roll crosses: what the boss does with it is judged again on each machine, and agrees.
+      blows: () => {
+        const you = mine(region);
+        const boss = region.primaryBoss;
+        if (you === null || boss === null) return [];
+        return thrown.current.read(boss, you, region.world?.globalTickCounter ?? 0);
       },
       // A friend's kit crosses as item ids, and is built here from this client's own catalog. The tier they named
       // in the lobby dresses them until their first report lands, so nobody stands there naked while it does.
@@ -1041,6 +1053,8 @@ ${LOBBY_CSS}`;
         {stage && !coop.spectating && <Result stage={stage} region={region} params={params} clock={clock} room={inRoom ? { host: hosting, again: () => coop.client.again() } : null} />}
         {coop.dead && <SpectateBanner watching={coop.watchingName} />}
         {!ended && !inRoom && <RunGate clock={clock} ready={ready} />}
+        {/* In a room the fight is the room's to start, so this page says who it is waiting on instead of offering a Start of its own. */}
+        {!ended && inRoom && ready && <CoopWaiting client={coop.client} />}
       </GameOverlay>
       <FullFightSidebar
         params={params}

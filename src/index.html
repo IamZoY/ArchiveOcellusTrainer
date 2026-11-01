@@ -32,6 +32,7 @@
       }
 
       #start_panel button,
+      #coop_wait button,
       #paused_panel button {
         padding: 2px 8px;
         border: 1px solid #000;
@@ -43,6 +44,7 @@
 
       #whats_new_panel,
       #start_panel,
+      #coop_wait,
       #paused_panel {
         border: 2px solid #000;
         outline: 1px solid #5a5245;
@@ -104,6 +106,7 @@
       }
 
       #start_panel,
+      #coop_wait,
       #paused_panel {
         position: absolute;
         top: 20%;
@@ -116,13 +119,19 @@
       }
 
       .fixed_game_view #start_panel,
+      .fixed_game_view #coop_wait,
       .fixed_game_view #paused_panel {
         top: calc(var(--game-view-top) + var(--game-view-height) * 0.2);
         left: calc(var(--game-view-left) + var(--game-view-width) / 2);
         max-width: calc(var(--game-view-width) - 16px);
       }
 
+      #coop_wait button + button {
+        margin-left: 6px;
+      }
+
       #start_panel h2,
+      #coop_wait h2,
       #paused_panel h2 {
         margin: 0 0 6px;
         font-size: 18px;
@@ -130,6 +139,7 @@
       }
 
       #start_panel p,
+      #coop_wait p,
       #paused_panel p {
         margin: 0 0 8px;
       }
